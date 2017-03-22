@@ -19,4 +19,4 @@ requirements:
 about:
     home: http://www.iapws.org/release.html
     license: LICENSE
-    summary: “Python library for IAPWS standard calculation of Water and Steam Properties"
+    summary: “Python library for IAPWS Standard Calculations of Water and Steam Properties"
