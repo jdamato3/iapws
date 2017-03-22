@@ -2,6 +2,10 @@
     :target: https://travis-ci.org/jdamato3/iapws
     :alt: Build Status
 
+.. image:: https://circleci.com/gh/jdamato3/iapws/tree/master.svg?style=svg
+    :target: https://circleci.com/gh/jdamato3/iapws
+    :alt: Build Status
+
 .. image:: https://ci.appveyor.com/api/projects/status/l0pnt8xfi5cv6wfp/branch/master?svg=true
     :target: https://ci.appveyor.com/project/jdamato3/iapws
     :alt: Windows Build Status
