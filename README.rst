@@ -2,8 +2,8 @@
     :target: https://travis-ci.org/jdamato3/iapws
     :alt: Build Status
 
-.. image:: https://ci.appveyor.com/api/projects/status/a128sh8e50cjsiya?svg=true
-    :target: https://ci.appveyor.com/project/jjgomera/iapws
+.. image:: https://ci.appveyor.com/api/projects/status/l0pnt8xfi5cv6wfp/branch/master?svg=true
+    :target: https://ci.appveyor.com/project/jdamato3/iapws
     :alt: Windows Build Status
 
 .. image:: https://coveralls.io/repos/github/jjgomera/iapws/badge.svg?branch=master
