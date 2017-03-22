@@ -1,0 +1,22 @@
+package:
+  name: iapws
+  version: {{ environ['GIT_DESCRIBE_TAG'] }}
+build:
+  number: {{ environ.get('GIT_DESCRIBE_NUMBER', 0) }}
+
+source:
+  git_url: "https://github.com/jjgomera/iapws.git"
+
+requirements:
+  build:
+    - python
+    - scipy
+
+  run:
+    - python
+    - scipy
+
+about:
+    home: http://www.iapws.org/release.html
+    license: LICENSE
+    summary: “Python library for IAPWS standard calculation of Water and Steam Properties"

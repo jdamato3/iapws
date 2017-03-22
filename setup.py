@@ -21,7 +21,6 @@ setup(
                 'Association for the Properties of Water and Steam',
     long_description=long_description,
     license="gpl v3",
-    install_requires=["scipy"],
     classifiers=[
         "Development Status :: 5 - Production/Stable",
         "Intended Audience :: Education",
