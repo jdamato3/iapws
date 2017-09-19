@@ -7,10 +7,14 @@ Ammonia-Water Mistures
 
 
 from __future__ import division
-from math import exp, log
+from math import exp, log, pi, atan
 import warnings
 
+from scipy.optimize import fsolve
+
 from ._iapws import M as Mw
+from ._iapws import _Ice
+from ._utils import deriv_G
 from .iapws95 import MEoS, IAPWS95
 
 
@@ -243,7 +247,7 @@ def _fugacity(T, P, x):
 
 
 class MEoSBlend(MEoS):
-    """Special meos class to implement pseudocomponent blend and defining its
+    """Special meos class to im:plement pseudocomponent blend and defining its
     ancillary dew and bubble point"""
     @classmethod
     def _dewP(cls, T):
@@ -332,6 +336,7 @@ class Air(MEoSBlend):
                 "a1": [1, 0.354935e5, -0.354935e5],
                 "exp1": [0, 0.178963e1, 0],
                 "a2": [], "exp2": [], "a3": [], "exp3": []}
+    _surf = {"sigma": [0.03046], "exp": [1.28]}
     _rhoG = {
         "eq": 3,
         "ao": [-0.20466e1, -0.4752e1, -0.13259e2, -0.47652e2],
@@ -339,16 +344,6 @@ class Air(MEoSBlend):
     _Pv = {
         "ao": [-0.1567266, -0.5539635e1, 0.7567212, -0.3514322e1],
         "exp": [0.5, 1, 2.5, 4]}
-
-    def _surface(self, T):
-        """Equation for the surface tension"""
-        tau = 1-T/self.Tc
-        tension = 0
-        sigmai = [0.03046]
-        ni = [1.28]
-        for sigma, n in zip(sigmai, ni):
-            tension += sigma*tau**n
-        return tension
 
     @classmethod
     def _Liquid_Density(cls, T):
@@ -487,36 +482,39 @@ class Air(MEoSBlend):
             lr += n*tau**t*delta**d*exp(-g*delta**l)
 
         lc = 0
-        # TODO: Critical enchancement
-        # if fase:
-        #     qd = 0.31e-9
-        #     Gamma = 0.055
-        #     Xio = 0.11e-9
-        #     Tref = 265.262
-        #     k = 1.380658e-23  # J/K
+        # FIXME: Tiny desviation in the test in paper, 0.06% at critical point
+        if fase:
+            qd = 0.31
+            Gamma = 0.055
+            Xio = 0.11
+            Tref = 265.262
+            k = 1.380658e-23  # J/K
 
-        #     # Eq 11
-        #     X = self.Pc*rho/rhoc**2*fase.drhodP_T
-        #     refst = self._Helmholtz(rho, Tref)
-        #     drhodP_T = 1/refst["dpdrho"]
-        #     Xref = 3.78502*rho/rhoc**2*drhodP_T
+            # Eq 11
+            X = self.Pc*1e-3*rho/rhoc**2*fase.drhodP_T
 
-        #     # Eq 10
-        #     bracket = X-Xref*Tref/T
-        #     if bracket > 0:
-        #         Xi = Xio*(bracket/Gamma)**(0.63/1.2415)
+            ref = Air()
+            st = ref._Helmholtz(rho, Tref)
+            drho = 1e3/self.R/Tref/(1+2*delta*st["fird"]+delta**2*st["firdd"])
 
-        #         Xq = Xi/qd
-        #         # Eq 8
-        #         Omega = 2/pi*((fase.cp-fase.cv)/fase.cp*atan(Xq) +
-        #                       fase.cv/fase.cp*(Xq))
-        #         # Eq 9
-        #         Omega0 = 2/pi*(1-exp(-1/(1/Xq+Xq**2/3*rhoc**2/rho**2)))
+            Xref = self.Pc*1e-3*rho/rhoc**2*drho
 
-        #         # Eq 7
-        #         lc = rho*fase.cp*k*1.01*T/6/pi/Xi/fase.mu*(Omega-Omega0)
-        #     else:
-        #         lc = 0
+            # Eq 10
+            bracket = X-Xref*Tref/T
+            if bracket > 0:
+                Xi = Xio*(bracket/Gamma)**(0.63/1.2415)
+
+                Xq = Xi/qd
+                # Eq 8
+                Omega = 2/pi*((fase.cp-fase.cv)/fase.cp*atan(Xq) +
+                              fase.cv/fase.cp*(Xq))
+                # Eq 9
+                Omega0 = 2/pi*(1-exp(-1/(1/Xq+Xq**2/3*rhoc**2/rho**2)))
+
+                # Eq 7
+                lc = rho*fase.cp*k*1.01*T/6/pi/Xi/fase.mu*(Omega-Omega0)*1e15
+            else:
+                lc = 0
 
         # Eq 4
         k = lo+lr+lc
@@ -525,9 +523,342 @@ class Air(MEoSBlend):
 
 
 class HumidAir(object):
+    """
+    Humid air class with complete functionality
+
+    Parameters
+    ----------
+    T : float
+        Temperature [K]
+    P : float
+        Pressure [MPa]
+    rho : float
+        Density [kg/m³]
+    v : float
+        Specific volume [m³/kg]
+    A : float
+        Mass fraction of dry air in humid air [kg/kg]
+    xa : float
+        Mole fraction of dry air in humid air [-]
+    W : float
+        Mass fraction of water in humid air [kg/kg]
+    xw : float
+        Mole fraction of water in humid air [-]
+
+    Notes
+    -----
+    * It needs two incoming properties of T, P, rho.
+    * v as a alternate input parameter to rho
+    * For composition need one of A, xa, W, xw.
+
+    Returns
+    -------
+    The calculated instance has the following properties:
+        * P: Pressure [MPa]
+        * T: Temperature [K]
+        * g: Specific Gibbs free energy [kJ/kg]
+        * a: Specific Helmholtz free energy [kJ/kg]
+        * v: Specific volume [m³/kg]
+        * rho: Density [kg/m³]
+        * h: Specific enthalpy [kJ/kg]
+        * u: Specific internal energy [kJ/kg]
+        * s: Specific entropy [kJ/kg·K]
+        * cp: Specific isobaric heat capacity [kJ/kg·K]
+        * w: Speed of sound [m/s]
+
+        * alfav: Isobaric cubic expansion coefficient [1/K]
+        * betas: Isoentropic temperature-pressure coefficient [-]
+        * xkappa: Isothermal Expansion Coefficient [-]
+        * ks: Adiabatic Compressibility [1/MPa]
+
+        * A: Mass fraction of dry air in humid air [kg/kg]
+        * xa: Mole fraction of dry air in humid air [-]
+        * W: Mass fraction of water in humid air [kg/kg]
+        * xw: Mole fraction of water in humid air [-]
+        * mu: Relative chemical potential [kJ/kg]
+        * muw: Chemical potential of water [kJ/kg]
+        * M: Molar mass of humid air [g/mol]
+        * HR: Humidity ratio [-]
+        * xa: Mole fraction of dry air [-]
+        * xw: Mole fraction of water [-]
+        * xa_sat: Mole fraction of dry air at saturation state [-]
+        * RH: Relative humidity
+    """
+    kwargs = {"T": 0.0,
+              "P": 0.0,
+              "rho": 0.0,
+              "v": 0.0,
+              "A": None,
+              "xa": None,
+              "W": None,
+              "xw": None}
+    status = 0
+    msg = "Undefined"
+
+    def __init__(self, **kwargs):
+        """Constructor, define common constant and initinialice kwargs"""
+        self.kwargs = HumidAir.kwargs.copy()
+        self.__call__(**kwargs)
+
+    def __call__(self, **kwargs):
+        """Make instance callable to can add input parameter one to one"""
+        # Check alernate input parameters
+        if kwargs.get("v", 0):
+            kwargs["rho"] = 1./kwargs["v"]
+            del kwargs["v"]
+        if kwargs.get("W", 0):
+            kwargs["A"] = 1-kwargs["W"]
+            del kwargs["W"]
+        if kwargs.get("xw", 0):
+            kwargs["xa"] = 1-kwargs["xw"]
+            del kwargs["xw"]
+
+        self.kwargs.update(kwargs)
+
+        if self.calculable:
+            self.status = 1
+            self.calculo()
+            self.msg = ""
+
+    @property
+    def calculable(self):
+        """Check if inputs are enough to define state"""
+        self._mode = ""
+        if self.kwargs["T"] and self.kwargs["P"]:
+            self._mode = "TP"
+        elif self.kwargs["T"] and self.kwargs["rho"]:
+            self._mode = "Trho"
+        elif self.kwargs["P"] and self.kwargs["rho"]:
+            self._mode = "Prho"
+
+        # Composition definition
+        self._composition = ""
+        if self.kwargs["A"] is not None:
+            self._composition = "A"
+        elif self.kwargs["xa"] is not None:
+            self._composition = "xa"
+
+        return bool(self._mode) and bool(self._composition)
+
+    def calculo(self):
+        """Calculate procedure"""
+        T = self.kwargs["T"]
+        rho = self.kwargs["rho"]
+        P = self.kwargs["P"]
+
+        # Composition alternate definition
+        if self._composition == "A":
+            A = self.kwargs["A"]
+        elif self._composition == "xa":
+            xa = self.kwargs["xa"]
+            A = xa/(1-(1-xa)*(1-Mw/Ma))
+
+        # Thermodynamic definition
+        if self._mode == "TP":
+            def f(rho):
+                fav = self._fav(T, rho, A)
+                return rho**2*fav["fird"]/1000-P
+            rho = fsolve(f, 1)[0]
+        elif self._mode == "Prho":
+            def f(T):
+                fav = self._fav(T, rho, A)
+                return rho**2*fav["fird"]/1000-P
+            T = fsolve(f, 300)[0]
+
+        # General calculation procedure
+        fav = self._fav(T, rho, A)
+
+        # Common thermodynamic properties
+        prop = self._prop(T, rho, fav)
+        self.T = T
+        self.rho = rho
+        self.v = 1/rho
+        self.P = prop["P"]
+        self.s = prop["s"]
+        self.cp = prop["cp"]
+        self.h = prop["h"]
+        self.g = prop["g"]
+        self.u = self.h-self.P*1000*self.v
+        self.alfav = prop["alfav"]
+        self.betas = prop["betas"]
+        self.xkappa = prop["xkappa"]
+        self.ks = prop["ks"]
+        self.w = prop["w"]
+
+        # Coligative properties
+        coligative = self._coligative(rho, A, fav)
+        self.A = A
+        self.W = 1-A
+        self.mu = coligative["mu"]
+        self.muw = coligative["muw"]
+        self.M = coligative["M"]
+        self.HR = coligative["HR"]
+        self.xa = coligative["xa"]
+        self.xw = coligative["xw"]
+        self.Pv = (1-self.xa)*self.P
+
+        # Saturation related properties
+        A_sat = self._eq(self.T, self.P)
+        self.xa_sat = A_sat*Mw/Ma/(1-A_sat*(1-Mw/Ma))
+        self.RH = (1-self.xa)/(1-self.xa_sat)
+
+    def derivative(self, z, x, y):
+        """Wrapper derivative for custom derived properties
+        where x, y, z can be: P, T, v, rho, u, h, s, g, a"""
+        return deriv_G(self, z, x, y, self)
+
+    def _eq(self, T, P):
+        """Procedure for calculate the composition in saturation state
+
+        Parameters
+        ----------
+        T : float
+            Temperature [K]
+        P : float
+            Pressure [MPa]
+
+        Returns
+        -------
+        Asat : float
+            Saturation mass fraction of dry air in humid air [kg/kg]
+        """
+        if T <= 273.16:
+            ice = _Ice(T, P)
+            gw = ice["g"]
+            rho = ice["rho"]
+        else:
+            water = IAPWS95(T=T, P=P)
+            gw = water.g
+            rho = water.rho
+
+        def f(a):
+            fa = self._fav(T, rho, a)
+            muw = fa["fir"]+rho*fa["fird"]-a*fa["fira"]
+            return gw-muw
+        Asat = fsolve(f, 0.9)[0]
+        return Asat
+
+    def _prop(self, T, rho, fav):
+        """Thermodynamic properties of humid air
+
+        Parameters
+        ----------
+        T : float
+            Temperature [K]
+        rho : float
+            Density [kg/m³]
+        fav : dict
+            dictionary with helmholtz energy and derivatives
+
+        Returns
+        -------
+        prop : dictionary with thermodynamic properties of humid air
+            P: Pressure [MPa]
+            s: Specific entropy [kJ/kgK]
+            cp: Specific isobaric heat capacity [kJ/kgK]
+            h: Specific enthalpy [kJ/kg]
+            g: Specific gibbs energy [kJ/kg]
+            alfav: Thermal expansion coefficient [1/K]
+            betas: Isentropic T-P coefficient [K/MPa]
+            xkappa: Isothermal compressibility [1/MPa]
+            ks: Isentropic compressibility [1/MPa]
+            w: Speed of sound [m/s]
+
+        References
+        ----------
+        IAPWS, Guideline on an Equation of State for Humid Air in Contact with
+        Seawater and Ice, Consistent with the IAPWS Formulation 2008 for the
+        Thermodynamic Properties of Seawater, Table 5,
+        http://www.iapws.org/relguide/SeaAir.html
+        """
+        prop = {}
+        prop["P"] = rho**2*fav["fird"]/1000                             # Eq T1
+        prop["s"] = -fav["firt"]                                        # Eq T2
+        prop["cp"] = -T*fav["firtt"]+T*rho*fav["firdt"]**2/(            # Eq T3
+            2*fav["fird"]+rho*fav["firdd"])
+        prop["h"] = fav["fir"]-T*fav["firt"]+rho*fav["fird"]            # Eq T4
+        prop["g"] = fav["fir"]+rho*fav["fird"]                          # Eq T5
+        prop["alfav"] = fav["firdt"]/(2*fav["fird"]+rho*fav["firdd"])   # Eq T6
+        prop["betas"] = 1000*fav["firdt"]/rho/(                         # Eq T7
+            rho*fav["firdt"]**2-fav["firtt"]*(2*fav["fird"]+rho*fav["firdd"]))
+        prop["xkappa"] = 1e3/(rho**2*(2*fav["fird"]+rho*fav["firdd"]))  # Eq T8
+        prop["ks"] = 1000*fav["firtt"]/rho**2/(                         # Eq T9
+            fav["firtt"]*(2*fav["fird"]+rho*fav["firdd"])-rho*fav["firdt"]**2)
+        prop["w"] = (rho**2*1000*(fav["firtt"]*fav["firdd"]-fav["firdt"]**2) /
+                     fav["firtt"]+2*rho*fav["fird"]*1000)**0.5         # Eq T10
+        return prop
+
+    def _coligative(self, rho, A, fav):
+        """Miscelaneous properties of humid air
+
+        Parameters
+        ----------
+        rho : float
+            Density [kg/m³]
+        A : float
+            Mass fraction of dry air in humid air [kg/kg]
+        fav : dict
+            dictionary with helmholtz energy and derivatives
+
+        Returns
+        -------
+        prop : dictionary with calculated properties
+            mu: Relative chemical potential [kJ/kg]
+            muw: Chemical potential of water [kJ/kg]
+            M: Molar mass of humid air [g/mol]
+            HR: Humidity ratio [-]
+            xa: Mole fraction of dry air [-]
+            xw: Mole fraction of water [-]
+
+        References
+        ----------
+        IAPWS, Guideline on an Equation of State for Humid Air in Contact with
+        Seawater and Ice, Consistent with the IAPWS Formulation 2008 for the
+        Thermodynamic Properties of Seawater, Table 12,
+        http://www.iapws.org/relguide/SeaAir.html
+        """
+        prop = {}
+        prop["mu"] = fav["fira"]
+        prop["muw"] = fav["fir"]+rho*fav["fird"]-A*fav["fira"]
+        prop["M"] = 1/((1-A)/Mw+A/Ma)
+        prop["HR"] = 1/A-1
+        prop["xa"] = A*Mw/Ma/(1-A*(1-Mw/Ma))
+        prop["xw"] = 1-prop["xa"]
+        return prop
 
     def _fav(self, T, rho, A):
-        """Table 6, pag 10"""
+        """Specific Helmholtz energy of humid air and derivatives
+
+        Parameters
+        ----------
+        T : float
+            Temperature [K]
+        rho : float
+            Density [kg/m³]
+        A : float
+            Mass fraction of dry air in humid air [kg/kg]
+
+        Returns
+        -------
+        prop : dictionary with helmholtz energy and derivatives
+            fir  [kJ/kg]
+            fira: [∂fav/∂A]T,ρ  [kJ/kg]
+            firt: [∂fav/∂T]A,ρ  [kJ/kgK]
+            fird: [∂fav/∂ρ]A,T  [kJ/m³kg²]
+            firaa: [∂²fav/∂A²]T,ρ  [kJ/kg]
+            firat: [∂²fav/∂A∂T]ρ  [kJ/kgK]
+            firad: [∂²fav/∂A∂ρ]T  [kJ/m³kg²]
+            firtt: [∂²fav/∂T²]A,ρ  [kJ/kgK²]
+            firdt: [∂²fav/∂T∂ρ]A  [kJ/m³kg²K]
+            firdd: [∂²fav/∂ρ²]A,T  [kJ/m⁶kg³]
+
+        References
+        ----------
+        IAPWS, Guideline on an Equation of State for Humid Air in Contact with
+        Seawater and Ice, Consistent with the IAPWS Formulation 2008 for the
+        Thermodynamic Properties of Seawater, Table 6,
+        http://www.iapws.org/relguide/SeaAir.html
+        """
         water = IAPWS95()
         rhov = (1-A)*rho
         fv = water._derivDimensional(rhov, T)
@@ -538,31 +869,31 @@ class HumidAir(object):
 
         fmix = self._fmix(T, rho, A)
 
-        f = (1-A)*fv["fir"] + A*fa["fir"] + fmix["fir"]
-        fA = -fv["fir"]-rhov*fv["fird"]+fa["fir"]+rhoa*fa["fird"]+fmix["fira"]
-        ft = (1-A)*fv["firt"]+A*fa["firt"]+fmix["firt"]
-        fd = (1-A)**2*fv["fird"]+A**2*fa["fird"]+fmix["fird"]
-        faa = rho*(2*fv["fird"]+rhov*fv["firdd"] +
-                   2*fa["fird"]+rhoa*fa["firdd"])+fmix["firaa"]
-        fat = -fv["firt"]-rhov*fv["firdt"]+fa["firt"]+rhoa*fa["firdt"] + \
-            fmix["firat"]
-        fad = -(1-A)*(2*fv["fird"]+rhov*fv["firdd"]) + \
-            A*(2*fa["fird"]+rhoa*fa["firdd"])+fmix["firad"]
-        ftt = (1-A)*fv["firtt"]+A*fa["firtt"]+fmix["firtt"]
-        ftd = (1-A)**2*fv["firdt"]+A**2*fa["firdt"]+fmix["firdt"]
-        fdd = (1-A)**3*fv["firdd"]+A**3*fa["firdd"]+fmix["firdd"]
-
         prop = {}
-        prop["fir"] = f
-        prop["fira"] = fA
-        prop["firt"] = ft
-        prop["fird"] = fd
-        prop["firaa"] = faa
-        prop["firat"] = fat
-        prop["firad"] = fad
-        prop["firtt"] = ftt
-        prop["firdt"] = ftd
-        prop["firdd"] = fdd
+        # Eq T11
+        prop["fir"] = (1-A)*fv["fir"] + A*fa["fir"] + fmix["fir"]
+        # Eq T12
+        prop["fira"] = -fv["fir"]-rhov*fv["fird"]+fa["fir"] + \
+            rhoa*fa["fird"]+fmix["fira"]
+        # Eq T13
+        prop["firt"] = (1-A)*fv["firt"]+A*fa["firt"]+fmix["firt"]
+        # Eq T14
+        prop["fird"] = (1-A)**2*fv["fird"]+A**2*fa["fird"]+fmix["fird"]
+        # Eq T15
+        prop["firaa"] = rho*(2*fv["fird"]+rhov*fv["firdd"] +
+                             2*fa["fird"]+rhoa*fa["firdd"])+fmix["firaa"]
+        # Eq T16
+        prop["firat"] = -fv["firt"]-rhov*fv["firdt"]+fa["firt"] + \
+            rhoa*fa["firdt"]+fmix["firat"]
+        # Eq T17
+        prop["firad"] = -(1-A)*(2*fv["fird"]+rhov*fv["firdd"]) + \
+            A*(2*fa["fird"]+rhoa*fa["firdd"])+fmix["firad"]
+        # Eq T18
+        prop["firtt"] = (1-A)*fv["firtt"]+A*fa["firtt"]+fmix["firtt"]
+        # Eq T19
+        prop["firdt"] = (1-A)**2*fv["firdt"]+A**2*fa["firdt"]+fmix["firdt"]
+        # Eq T20
+        prop["firdd"] = (1-A)**3*fv["firdd"]+A**3*fa["firdd"]+fmix["firdd"]
         return prop
 
     def _fmix(self, T, rho, A):
@@ -579,8 +910,7 @@ class HumidAir(object):
 
         Returns
         -------
-        prop : float
-            dictionary with helmholtz energy and derivatives
+        prop : dictionary with helmholtz energy and derivatives
             fir
             fira: [∂fmix/∂A]T,ρ
             firt: [∂fmix/∂T]A,ρ

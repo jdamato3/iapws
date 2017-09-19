@@ -8,47 +8,47 @@
 The module implement the fundamental equation for the five regions (rectangular
 boxes) and the backward equation (marked in grey).
 
-:ref: IAPWS97: Global module class with all the functionality
+:func:`IAPWS97`: Global module class with all the functionality integrated
 
 Fundamental equations:
-    :ref: `_Region1`
-    :ref: `_Region2`
-    :ref: `_Region3`
-    :ref: `_Region4`
-    :ref: `_TSat_P`
-    :ref: `_PSat_T`
-    :ref: `_Region5`
+   * :func:`_Region1`
+   * :func:`_Region2`
+   * :func:`_Region3`
+   * :func:`_Region4`
+   * :func:`_TSat_P`
+   * :func:`_PSat_T`
+   * :func:`_Region5`
 
 Backward equations:
-    :ref: `_Backward1_T_Ph`
-    :ref: `_Backward1_T_Ps`
-    :ref: `_Backward1_P_hs`
-    :ref: `_Backward2_T_Ph`
-    :ref: `_Backward2_T_Ps`
-    :ref: `_Backward2_P_hs`
-    :ref: `_Backward3_T_Ph`
-    :ref: `_Backward3_T_Ps`
-    :ref: `_Backward3_P_hs`
-    :ref: `_Backward3_v_Ph`
-    :ref: `_Backward3_v_Ps`
-    :ref: `_Backward3_v_PT`
-    :ref: `_Backward4_T_hs`
+   * :func:`_Backward1_T_Ph`
+   * :func:`_Backward1_T_Ps`
+   * :func:`_Backward1_P_hs`
+   * :func:`_Backward2_T_Ph`
+   * :func:`_Backward2_T_Ps`
+   * :func:`_Backward2_P_hs`
+   * :func:`_Backward3_T_Ph`
+   * :func:`_Backward3_T_Ps`
+   * :func:`_Backward3_P_hs`
+   * :func:`_Backward3_v_Ph`
+   * :func:`_Backward3_v_Ps`
+   * :func:`_Backward3_v_PT`
+   * :func:`_Backward4_T_hs`
 
 Boundary equations:
-    :ref: `_h13_s`
-    :ref: `_h3a_s`
-    :ref: `_h1_s`
-    :ref: `_t_hs`
-    :ref: `_PSat_h`
-    :ref: `_h2ab_s`
-    :ref: `_h_3ab`
-    :ref: `_h2c3b_s`
-    :ref: `_hab_s`
-    :ref: `_hbc_P`
+   * :func:`_h13_s`
+   * :func:`_h3a_s`
+   * :func:`_h1_s`
+   * :func:`_t_hs`
+   * :func:`_PSat_h`
+   * :func:`_h2ab_s`
+   * :func:`_h_3ab`
+   * :func:`_h2c3b_s`
+   * :func:`_hab_s`
+   * :func:`_hbc_P`
 
 
-References
-----------
+References:
+
 IAPWS, Revised Release on the IAPWS Industrial Formulation 1997 for the
 Thermodynamic Properties of Water and Steam August 2007,
 http://www.iapws.org/relguide/IF97-Rev.html
@@ -4648,26 +4648,31 @@ class IAPWS97(object):
         fase.xkappa = estado["kt"]
         fase.kappas = -1/fase.v*self.derivative("v", "P", "s", fase)
 
-        fase.mu = _Viscosity(fase.rho, self.T)
-        fase.k = _ThCond(fase.rho, self.T)
-        fase.nu = fase.mu/fase.rho
-        fase.epsilon = _Dielectric(fase.rho, self.T)
-        fase.Prandt = fase.mu*fase.cp*1000/fase.k
-        try:
-            fase.n = _Refractive(fase.rho, self.T, self.kwargs["l"])
-        except NotImplementedError:
-            fase.n = None
-
-        fase.alfa = fase.k/1000/fase.rho/fase.cp
         fase.joule = self.derivative("T", "P", "h", fase)
         fase.deltat = self.derivative("h", "P", "T", fase)
-        fase.gamma = -self.v/self.P/1000*self.derivative("P", "v", "s", fase)
+        fase.gamma = -fase.cp_cv*fase.v/self.P*self.derivative(
+                "P", "v", "s", fase)
 
         fase.alfap = fase.alfav/self.P/fase.xkappa
         fase.betap = -1/self.P*self.derivative("P", "v", "T", fase)
 
         fase.fi = exp((fase.g-self.g0)/R/self.T)
         fase.f = self.P*fase.fi
+
+        fase.mu = _Viscosity(fase.rho, self.T)
+        # Use industrial formulation for critical enhancement in thermal
+        # conductivity calculation
+        fase.drhodP_T = self.derivative("rho", "P", "T", fase)
+        fase.k = _ThCond(fase.rho, self.T, fase)
+
+        fase.nu = fase.mu/fase.rho
+        fase.alfa = fase.k/1000/fase.rho/fase.cp
+        fase.epsilon = _Dielectric(fase.rho, self.T)
+        fase.Prandt = fase.mu*fase.cp*1000/fase.k
+        try:
+            fase.n = _Refractive(fase.rho, self.T, self.kwargs["l"])
+        except NotImplementedError:
+            fase.n = None
 
     def derivative(self, z, x, y, fase):
         """Wrapper derivative for custom derived properties

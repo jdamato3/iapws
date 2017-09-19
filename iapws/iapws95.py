@@ -27,8 +27,8 @@ class MEoS(_fase):
     General implementation of multiparameter equation of state. From this
     derived all child class specified per individual compounds
 
-    Keyword Args
-    ------------
+    Parameters
+    ----------
     T : float
         Temperature [K]
     P : float
@@ -357,7 +357,7 @@ class MEoS(_fase):
             elif self._mode == "Tu":
                 def f(rho):
                     prop = self._Helmholtz(rho, T)
-                    return prop["h"]-prop["P"]*prop["v"]-u
+                    return prop["h"]-prop["P"]/rho-u
 
                 if T >= self.Tc:
                     rhoo = self.rhoc
@@ -367,14 +367,14 @@ class MEoS(_fase):
                     rhol = self._Liquid_Density(T)
                     vapor = self._Helmholtz(rhov, T)
                     liquido = self._Helmholtz(rhol, T)
-                    uv = vapor["h"]-vapor["P"]*vapor["v"]
-                    ul = liquido["h"]-liquido["P"]*liquido["v"]
+                    uv = vapor["h"]-vapor["P"]/rhov
+                    ul = liquido["h"]-liquido["P"]/rhol
                     if ul <= u <= uv:
                         rhol, rhov, Ps = self._saturation(T)
                         vapor = self._Helmholtz(rhov, T)
                         liquido = self._Helmholtz(rhol, T)
-                        uv = vapor["h"]-vapor["P"]*vapor["v"]
-                        ul = liquido["h"]-liquido["P"]*liquido["v"]
+                        uv = vapor["h"]-vapor["P"]/rhov
+                        ul = liquido["h"]-liquido["P"]/rhol
                         x = (u-ul)/(uv-ul)
                         rho = 1/(x/rhov-(1-x)/rhol)
                         P = Ps/1000
@@ -478,8 +478,9 @@ class MEoS(_fase):
 
             elif self._mode == "Pu":
                 def funcion(parr):
-                    par = self._Helmholtz(parr[0], parr[1])
-                    return par["h"]-par["P"]*par["v"]-u, par["P"]-P*1000
+                    rho, T = parr
+                    par = self._Helmholtz(rho, T)
+                    return par["h"]-par["P"]/rho-u, par["P"]-P*1000
                 sol = fsolve(funcion, [rhoo, To], full_output=True)
                 rho, T = sol[0]
                 rhol = self._Liquid_Density(T)
@@ -647,8 +648,9 @@ class MEoS(_fase):
 
             elif self._mode == "hu":
                 def funcion(parr):
-                    par = self._Helmholtz(parr[0], parr[1])
-                    return par["h"]-par["P"]*par["v"]-u, par["h"]-h
+                    rho, T = parr
+                    par = self._Helmholtz(rho, T)
+                    return par["h"]-par["P"]/rho-u, par["h"]-h
                 sol = fsolve(funcion, [rhoo, To], full_output=True)
                 rho, T = sol[0]
                 rhol = self._Liquid_Density(T)
@@ -693,8 +695,9 @@ class MEoS(_fase):
 
             elif self._mode == "su":
                 def funcion(parr):
-                    par = self._Helmholtz(parr[0], parr[1])
-                    return par["h"]-par["P"]*par["v"]-u, par["s"]-s
+                    rho, T = parr
+                    par = self._Helmholtz(rho, T)
+                    return par["h"]-par["P"]/rho-u, par["s"]-s
                 sol = fsolve(funcion, [rhoo, To], full_output=True)
                 rho, T = sol[0]
                 rhol = self._Liquid_Density(T)
@@ -793,7 +796,12 @@ class MEoS(_fase):
                     liquido["fir"]-vapor["fir"]+log(deltaL/deltaG))
                 return Ps/1000-P
 
-            To = _TSat_P(P)
+            if T0:
+                To = T0
+            elif self.name == "water":
+                To = _TSat_P(P)
+            else:
+                To = (self.Tc+self.Tt)/2
             T = fsolve(funcion, To)[0]
             rhol, rhov, Ps = self._saturation(T)
             vapor = self._Helmholtz(rhov, T)
@@ -849,14 +857,16 @@ class MEoS(_fase):
         else:
             self.sigma = None
 
+        vir = self._virial(T)
+        self.virialB = vir["B"]/self.rhoc
+        self.virialC = vir["C"]/self.rhoc**2
+
         if 0 < x < 1:
-            self.virialB = vapor["B"]/self.rhoc
-            self.virialC = vapor["C"]/self.rhoc**2
             self.Hvap = vapor["h"]-liquido["h"]
+            self.Svap = vapor["s"]-liquido["s"]
         else:
-            self.virialB = propiedades["B"]/self.rhoc
-            self.virialC = propiedades["C"]/self.rhoc**2
             self.Hvap = None
+            self.Svap = None
 
         self.invT = -1/self.T
 
@@ -877,8 +887,8 @@ class MEoS(_fase):
 
     def fill(self, fase, estado):
         """Fill phase properties"""
-        fase.v = estado["v"]
-        fase.rho = 1/fase.v
+        fase.rho = estado["rho"]
+        fase.v = 1/fase.rho
 
         fase.h = estado["h"]
         fase.s = estado["s"]
@@ -887,12 +897,10 @@ class MEoS(_fase):
         fase.g = fase.h-self.T*fase.s
 
         fase.Z = self.P*fase.v/self.T/self.R*1e3
-        fase.fi = estado["fugacity"]
+        fase.fi = exp(estado["fir"]+estado["delta"]*estado["fird"] -
+                      log(1+estado["delta"]*estado["fird"]))
         fase.f = fase.fi*self.P
-        fase.cp = estado["cp"]
         fase.cv = estado["cv"]
-        fase.cp_cv = fase.cp/fase.cv
-        fase.w = estado["w"]
 
         fase.rhoM = fase.rho/self.M
         fase.hM = fase.h*self.M
@@ -900,11 +908,15 @@ class MEoS(_fase):
         fase.uM = fase.u*self.M
         fase.aM = fase.a*self.M
         fase.gM = fase.g*self.M
-        fase.cvM = fase.cv*self.M
-        fase.cpM = fase.cp*self.M
 
         fase.alfap = estado["alfap"]
         fase.betap = estado["betap"]
+
+        fase.cp = self.derivative("h", "T", "P", fase)
+        fase.cp_cv = fase.cp/fase.cv
+        fase.w = (self.derivative("P", "rho", "s", fase)*1000)**0.5
+        fase.cvM = fase.cv*self.M
+        fase.cpM = fase.cp*self.M
 
         fase.joule = self.derivative("T", "P", "h", fase)*1e3
         fase.Gruneisen = fase.v/fase.cv*self.derivative("P", "T", "v", fase)
@@ -921,12 +933,12 @@ class MEoS(_fase):
         fase.dhdT_P = self.derivative("h", "T", "P", fase)
         fase.dhdP_T = self.derivative("h", "P", "T", fase)*1e3
         fase.dhdP_rho = self.derivative("h", "P", "rho", fase)*1e3
-        fase.dhdrho_T = estado["dhdrho"]
-        fase.dhdrho_P = estado["dhdrho"]+fase.dhdT_rho/estado["drhodt"]
+        fase.dhdrho_T = self.derivative("h", "rho", "T", fase)
+        fase.dhdrho_P = self.derivative("h", "rho", "P", fase)
         fase.dpdT_rho = self.derivative("P", "T", "rho", fase)*1e-3
-        fase.dpdrho_T = estado["dpdrho"]*1e-3
-        fase.drhodP_T = 1/estado["dpdrho"]*1e3
-        fase.drhodT_P = estado["drhodt"]
+        fase.dpdrho_T = self.derivative("P", "rho", "T", fase)*1e-3
+        fase.drhodP_T = self.derivative("rho", "P", "T", fase)*1e3
+        fase.drhodT_P = self.derivative("rho", "T", "P", fase)
 
         fase.Z_rho = (fase.Z-1)/fase.rho
         fase.IntP = self.T*self.derivative("P", "T", "rho", fase)*1e-3-self.P
@@ -938,7 +950,11 @@ class MEoS(_fase):
         fase.alfa = fase.k/1000/fase.rho/fase.cp
         fase.Prandt = fase.mu*fase.cp*1000/fase.k
         if self.name == "water":
-            fase.epsilon = _Dielectric(fase.rho, self.T)
+            try:
+                fase.epsilon = _Dielectric(fase.rho, self.T)
+            except NotImplementedError:
+                fase.epsilon = None
+
             try:
                 fase.n = _Refractive(fase.rho, self.T, self.kwargs["l"])
             except NotImplementedError:
@@ -949,7 +965,7 @@ class MEoS(_fase):
 
     def derivative(self, z, x, y, fase):
         """Wrapper derivative for custom derived properties
-        where x, y, z can be: P, T, v, u, h, s, g, a"""
+        where x, y, z can be: P, T, v, rho, u, h, s, g, a"""
         return deriv_H(self, z, x, y, fase)
 
     def _saturation(self, T):
@@ -985,7 +1001,36 @@ class MEoS(_fase):
         return rhoL, rhoG, Ps
 
     def _Helmholtz(self, rho, T):
-        """Calculated properties, table 3 pag 10"""
+        """Calculated properties from helmholtz free energy and derivatives
+
+        Parameters
+        ----------
+        rho : float
+            Density [kg/m³]
+        T : float
+            Temperature [K]
+
+        Returns
+        -------
+        prop : dictionary with calculated properties
+            fir:  [-]
+            fird: [∂fir/∂δ]τ  [-]
+            firdd: [∂²fir/∂δ²]τ  [-]
+            delta: Reducen density, rho/rhoc [-]
+            P: Pressure [kPa]
+            h: Enthalpy [kJ/kg]
+            s: Entropy [kJ/kgK]
+            cv: Isochoric specific heat [kJ/kgK]
+            alfav: Thermal expansion coefficient [1/K]
+            betap: Isothermal compressibility [1/kPa]
+
+        References
+        ----------
+        IAPWS, Revised Release on the IAPWS Formulation 1995 for the
+        Thermodynamic Properties of Ordinary Water Substance for General and
+        Scientific Use, September 2016, Table 3
+        http://www.iapws.org/relguide/IAPWS-95.html
+        """
         if isinstance(rho, ndarray):
             rho = rho[0]
         if isinstance(T, ndarray):
@@ -1002,7 +1047,6 @@ class MEoS(_fase):
         fio = ideal["fio"]
         fiot = ideal["fiot"]
         fiott = ideal["fiott"]
-        fiodt = ideal["fiodt"]
 
         res = self._phir(tau, delta)
         fir = res["fir"]
@@ -1011,41 +1055,21 @@ class MEoS(_fase):
         fird = res["fird"]
         firdd = res["firdd"]
         firdt = res["firdt"]
-        B = res["B"]
-        C = res["C"]
 
         propiedades = {}
         propiedades["fir"] = fir
         propiedades["fird"] = fird
         propiedades["firdd"] = firdd
+        propiedades["delta"] = delta
 
-        propiedades["T"] = T
+        propiedades["rho"] = rho
         propiedades["P"] = (1+delta*fird)*self.R*T*rho
-        propiedades["v"] = 1./rho
         propiedades["h"] = self.R*T*(1+tau*(fiot+firt)+delta*fird)
         propiedades["s"] = self.R*(tau*(fiot+firt)-fio-fir)
         propiedades["cv"] = -self.R*tau**2*(fiott+firtt)
-        propiedades["cp"] = self.R*(
-            -tau**2*(fiott+firtt) + (1+delta*fird-delta*tau*firdt)**2/(
-                1+2*delta*fird+delta**2*firdd))
-        propiedades["w"] = (
-            self.R*1000*T*(1+2*delta*fird+delta**2*firdd - (
-                1+delta*fird-delta*tau*firdt)**2/tau**2/(fiott+firtt)))**0.5
         propiedades["alfap"] = (1-delta*tau*firdt/(1+delta*fird))/T
         propiedades["betap"] = rho*(
             1+(delta*fird+delta**2*firdd)/(1+delta*fird))
-        propiedades["fugacity"] = exp(fir+delta*fird-log(1+delta*fird))
-        propiedades["B"] = B
-        propiedades["C"] = C
-        propiedades["dpdrho"] = self.R*T*(1+2*delta*fird+delta**2*firdd)
-        propiedades["drhodt"] = -rho*(1+delta*fird-delta*tau*firdt) / \
-            (T*(1+2*delta*fird+delta**2*firdd))
-
-        propiedades["dhdrho"] = self.R*T/rho * \
-            (tau*delta*(fiodt+firdt)+delta*fird+delta**2*firdd)
-#        dbt=-phi11/rho/t
-#        propiedades["cps"] = propiedades["cv"] Add cps from Argon pag.27
-
         return propiedades
 
     def _prop0(self, rho, T):
@@ -1069,6 +1093,32 @@ class MEoS(_fase):
         return propiedades
 
     def _phi0(self, tau, delta):
+        """Ideal gas Helmholtz free energy and derivatives
+
+        Parameters
+        ----------
+        tau : float
+            Inverse reduced temperature, Tc/T [-]
+        delta : float
+            Reduced density, rho/rhoc [-]
+
+        Returns
+        -------
+        prop : dictionary with ideal adimensional helmholtz energy and deriv
+            fio  [-]
+            fiot: [∂fio/∂τ]δ  [-]
+            fiod: [∂fio/∂δ]τ  [-]
+            fiott: [∂²fio/∂τ²]δ  [-]
+            fiodt: [∂²fio/∂τ∂δ]  [-]
+            fiodd: [∂²fio/∂δ²]τ  [-]
+
+        References
+        ----------
+        IAPWS, Revised Release on the IAPWS Formulation 1995 for the
+        Thermodynamic Properties of Ordinary Water Substance for General and
+        Scientific Use, September 2016, Table 4
+        http://www.iapws.org/relguide/IAPWS-95.html
+        """
         Fi0 = self.Fi0
 
         fio = Fi0["ao_log"][0]*log(delta)+Fi0["ao_log"][1]*log(tau)
@@ -1091,6 +1141,19 @@ class MEoS(_fase):
             fiot += n*t*((1-exp(-t*tau))**-1-1)
             fiott -= n*t**2*exp(-t*tau)*(1-exp(-t*tau))**-2
 
+        # Especial term for heavy water
+        # if "tau*logtau" in Fi0:
+        #     fio += Fi0["tau*logtau"]*tau*log(tau)
+        #     fiot += Fi0["tau*logtau"]*(log(tau)+1)
+        #     fiot += Fi0["tau*logtau"]/tau
+        # if "tau*logdelta" in Fi0 and delta:
+        #     fio += Fi0["tau*logdelta"]*tau*log(delta)
+        #     fiot += Fi0["tau*logdelta"]*log(delta)
+        #     fiod += Fi0["tau*logdelta"]*tau/delta
+        #     fiodd -= Fi0["tau*logdelta"]*tau/delta**2
+        #     fiodt += Fi0["tau*logdelta"]/delta
+
+        # Extension to especial terms of air
         if "ao_exp2" in Fi0:
             for n, g, C in zip(Fi0["ao_exp2"], Fi0["titao2"], Fi0["sum2"]):
                 fio += n*log(C+exp(g*tau))
@@ -1107,9 +1170,34 @@ class MEoS(_fase):
         return prop
 
     def _phir(self, tau, delta):
-        delta_0 = 1e-200
+        """Residual contribution to the free Helmholtz energy
 
-        fir = fird = firdd = firt = firtt = firdt = B = C = 0
+        Parameters
+        ----------
+        tau : float
+            Inverse reduced temperature, Tc/T [-]
+        delta : float
+            Reduced density, rho/rhoc [-]
+
+        Returns
+        -------
+        prop : dictionary with residual adimensional helmholtz energy and deriv
+            fir  [-]
+            firt: [∂fir/∂τ]δ,x  [-]
+            fird: [∂fir/∂δ]τ,x  [-]
+            firtt: [∂²fir/∂τ²]δ,x  [-]
+            firdt: [∂²fir/∂τ∂δ]x  [-]
+            firdd: [∂²fir/∂δ²]τ,x  [-]
+            firx: [∂fir/∂x]τ,δ  [-]
+
+        References
+        ----------
+        IAPWS, Revised Release on the IAPWS Formulation 1995 for the
+        Thermodynamic Properties of Ordinary Water Substance for General and
+        Scientific Use, September 2016, Table 5
+        http://www.iapws.org/relguide/IAPWS-95.html
+        """
+        fir = fird = firdd = firt = firtt = firdt = 0
 
         # Polinomial terms
         nr1 = self._constants.get("nr1", [])
@@ -1122,8 +1210,6 @@ class MEoS(_fase):
             firt += n*t*delta**d*tau**(t-1)
             firtt += n*t*(t-1)*delta**d*tau**(t-2)
             firdt += n*t*d*delta**(d-1)*tau**(t-1)
-            B += n*d*delta_0**(d-1)*tau**t
-            C += n*d*(d-1)*delta_0**(d-2)*tau**t
 
         # Exponential terms
         nr2 = self._constants.get("nr2", [])
@@ -1140,9 +1226,6 @@ class MEoS(_fase):
             firtt += n*t*(t-1)*delta**d*tau**(t-2)*exp(-g*delta**c)
             firdt += n*t*delta**(d-1)*tau**(t-1)*(d-g*c*delta**c)*exp(
                 -g*delta**c)
-            B += n*exp(-g*delta_0**c)*delta_0**(d-1)*tau**t*(d-g*c*delta_0**c)
-            C += n*exp(-g*delta_0**c)*(delta_0**(d-2)*tau**t*(
-                (d-g*c*delta_0**c)*(d-1-g*c*delta_0**c)-g**2*c**2*delta_0**c))
 
         # Gaussian terms
         nr3 = self._constants.get("nr3", [])
@@ -1152,106 +1235,64 @@ class MEoS(_fase):
         e3 = self._constants.get("epsilon3", [])
         b3 = self._constants.get("beta3", [])
         g3 = self._constants.get("gamma3", [])
-        for i in range(len(nr3)):
-            exp1 = self._constants.get("exp1", [2]*len(nr3))
-            exp2 = self._constants.get("exp2", [2]*len(nr3))
-            fir += nr3[i]*delta**d3[i]*tau**t3[i]*exp(-a3[i]*(
-                delta-e3[i])**exp1[i]-b3[i]*(tau-g3[i])**exp2[i])
-            fird += nr3[i]*delta**d3[i]*tau**t3[i]*exp(
-                -a3[i]*(delta-e3[i])**exp1[i]-b3[i]*(tau-g3[i])**exp2[i])*(
-                    d3[i]/delta-2*a3[i]*(delta-e3[i]))
-            firdd += nr3[i]*tau**t3[i]*exp(
-                -a3[i]*(delta-e3[i])**exp1[i]-b3[i]*(tau-g3[i])**exp2[i])*(
-                    -2*a3[i]*delta**d3[i]+4*a3[i]**2*delta**d3[i]*(
-                        delta-e3[i])**exp1[i]-4*d3[i]*a3[i]*delta**2*(
-                            delta-e3[i])+d3[i]*2*delta)
-            firt += nr3[i]*delta**d3[i]*tau**t3[i]*exp(-a3[i]*(
-                delta-e3[i])**exp1[i]-b3[i]*(tau-g3[i])**exp2[i])*(
-                    t3[i]/tau-2*b3[i]*(tau-g3[i]))
-            firtt += nr3[i]*delta**d3[i]*tau**t3[i]*exp(-a3[i]*(
-                delta-e3[i])**exp1[i]-b3[i]*(tau-g3[i])**exp2[i])*(
-                    (t3[i]/tau-2*b3[i]*(tau-g3[i]))**exp2[i]-t3[i]/tau**2 -
-                    2*b3[i])
-            firdt += nr3[i]*delta**d3[i]*tau**t3[i]*exp(-a3[i]*(
-                delta-e3[i])**exp1[i]-b3[i]*(tau-g3[i])**exp2[i])*(
-                    t3[i]/tau-2*b3[i]*(tau-g3[i]))*(d3[i]/delta-2*a3[i]*(
-                        delta-e3[i]))
-            B += nr3[i]*delta_0**d3[i]*tau**t3[i]*exp(-a3[i]*(
-                delta_0-e3[i])**exp1[i]-b3[i]*(tau-g3[i])**exp2[i])*(
-                    d3[i]/delta_0-2*a3[i]*(delta_0-e3[i]))
-            C += nr3[i]*tau**t3[i]*exp(-a3[i]*(delta_0-e3[i])**exp1[i]-b3[i]*(
-                tau-g3[i])**exp2[i])*(
-                    -2*a3[i]*delta_0**d3[i]+4*a3[i]**2*delta_0**d3[i]*(
-                        delta_0-e3[i])**exp1[i]-4*d3[i]*a3[i]*delta_0**2*(
-                            delta_0-e3[i])+d3[i]*2*delta_0)
+        for n, d, t, a, e, b, g in zip(nr3, d3, t3, a3, e3, b3, g3):
+            fir += n*delta**d*tau**t*exp(-a*(delta-e)**2-b*(tau-g)**2)
+            fird += n*delta**d*tau**t*exp(-a*(delta-e)**2-b*(tau-g)**2)*(
+                    d/delta-2*a*(delta-e))
+            firdd += n*tau**t*exp(-a*(delta-e)**2-b*(tau-g)**2)*(
+                    -2*a*delta**d+4*a**2*delta**d*(delta-e)**2-4*d*a*delta**2*(
+                            delta-e)+d*2*delta)
+            firt += n*delta**d*tau**t*exp(-a*(delta-e)**2-b*(tau-g)**2)*(
+                    t/tau-2*b*(tau-g))
+            firtt += n*delta**d*tau**t*exp(-a*(delta-e)**2-b*(tau-g)**2)*(
+                    (t/tau-2*b*(tau-g))**2-t/tau**2-2*b)
+            firdt += n*delta**d*tau**t*exp(-a*(delta-e)**2-b*(tau-g)**2)*(
+                    t/tau-2*b*(tau-g))*(d/delta-2*a*(delta-e))
 
         # Non analitic terms
         nr4 = self._constants.get("nr4", [])
         a4 = self._constants.get("a4", [])
-        b = self._constants.get("b4", [])
-        A = self._constants.get("A", [])
+        b4 = self._constants.get("b4", [])
+        Ai = self._constants.get("A", [])
         Bi = self._constants.get("B", [])
         Ci = self._constants.get("C", [])
-        D = self._constants.get("D", [])
-        bt = self._constants.get("beta4", [])
-        for i in range(len(nr4)):
-            Tita = (1-tau)+A[i]*((delta-1)**2)**(0.5/bt[i])
-            F = exp(-Ci[i]*(delta-1)**2-D[i]*(tau-1)**2)
-            Fd = -2*Ci[i]*F*(delta-1)
-            Fdd = 2*Ci[i]*F*(2*Ci[i]*(delta-1)**2-1)
-            Ft = -2*D[i]*F*(tau-1)
-            Ftt = 2*D[i]*F*(2*D[i]*(tau-1)**2-1)
-            Fdt = 4*Ci[i]*D[i]*F*(delta-1)*(tau-1)
+        Di = self._constants.get("D", [])
+        bt4 = self._constants.get("beta4", [])
+        for n, a, b, A, B, C, D, bt in zip(nr4, a4, b4, Ai, Bi, Ci, Di, bt4):
+            Tita = (1-tau)+A*((delta-1)**2)**(0.5/bt)
+            F = exp(-C*(delta-1)**2-D*(tau-1)**2)
+            Fd = -2*C*F*(delta-1)
+            Fdd = 2*C*F*(2*C*(delta-1)**2-1)
+            Ft = -2*D*F*(tau-1)
+            Ftt = 2*D*F*(2*D*(tau-1)**2-1)
+            Fdt = 4*C*D*F*(delta-1)*(tau-1)
 
-            Delta = Tita**2+Bi[i]*((delta-1)**2)**a4[i]
-            Deltad = (delta-1)*(A[i]*Tita*2/bt[i]*((delta-1)**2)**(
-                0.5/bt[i]-1)+2*Bi[i]*a4[i]*((delta-1)**2)**(a4[i]-1))
+            Delta = Tita**2+B*((delta-1)**2)**a
+            Deltad = (delta-1)*(A*Tita*2/bt*((delta-1)**2)**(0.5/bt-1) +
+                                2*B*a*((delta-1)**2)**(a-1))
             if delta == 1:
                 Deltadd = 0
             else:
-                Deltadd = Deltad/(delta-1)+(delta-1)**2*(4*Bi[i]*a4[i]*(
-                    a4[i]-1)*((delta-1)**2)**(a4[i]-2)+2*A[i]**2/bt[i]**2*(((
-                        delta-1)**2)**(0.5/bt[i]-1))**2+A[i]*Tita*4/bt[i]*(
-                            0.5/bt[i]-1)*((delta-1)**2)**(0.5/bt[i]-2))
+                Deltadd = Deltad/(delta-1)+(delta-1)**2*(
+                    4*B*a*(a-1)*((delta-1)**2)**(a-2) +
+                    2*A**2/bt**2*(((delta-1)**2)**(0.5/bt-1))**2 +
+                    A*Tita*4/bt*(0.5/bt-1)*((delta-1)**2)**(0.5/bt-2))
 
-            DeltaBd = b[i]*Delta**(b[i]-1)*Deltad
-            DeltaBdd = b[i]*(Delta**(b[i]-1)*Deltadd+(b[i]-1)*Delta**(
-                b[i]-2)*Deltad**2)
-            DeltaBt = -2*Tita*b[i]*Delta**(b[i]-1)
-            DeltaBtt = 2*b[i]*Delta**(b[i]-1)+4*Tita**2*b[i]*(
-                b[i]-1)*Delta**(b[i]-2)
-            DeltaBdt = -A[i]*b[i]*2/bt[i]*Delta**(b[i]-1)*(delta-1)*((
-                delta-1)**2)**(0.5/bt[i]-1)-2*Tita*b[i]*(b[i]-1)*Delta**(
-                    b[i]-2)*Deltad
+            DeltaBd = b*Delta**(b-1)*Deltad
+            DeltaBdd = b*(Delta**(b-1)*Deltadd+(b-1)*Delta**(b-2)*Deltad**2)
+            DeltaBt = -2*Tita*b*Delta**(b-1)
+            DeltaBtt = 2*b*Delta**(b-1)+4*Tita**2*b*(b-1)*Delta**(b-2)
+            DeltaBdt = -A*b*2/bt*Delta**(b-1)*(delta-1)*((delta-1)**2)**(
+                0.5/bt-1)-2*Tita*b*(b-1)*Delta**(b-2)*Deltad
 
-            fir += nr4[i]*Delta**b[i]*delta*F
-            fird += nr4[i]*(Delta**b[i]*(F+delta*Fd)+DeltaBd*delta*F)
-            firdd += nr4[i]*(Delta**b[i]*(2*Fd+delta*Fdd)+2*DeltaBd*(
-                F+delta*Fd)+DeltaBdd*delta*F)
-            firt += nr4[i]*delta*(DeltaBt*F+Delta**b[i]*Ft)
-            firtt += nr4[i]*delta*(DeltaBtt*F+2*DeltaBt*Ft+Delta**b[i]*Ftt)
-            firdt += nr4[i]*(Delta**b[i]*(Ft+delta*Fdt)+delta*DeltaBd*Ft +
-                             DeltaBt*(F+delta*Fd)+DeltaBdt*delta*F)
-
-            Tita_ = (1-tau)+A[i]*((delta_0-1)**2)**(0.5/bt[i])
-            Delta_ = Tita_**2+Bi[i]*((delta_0-1)**2)**a4[i]
-            Deltad_ = (delta_0-1)*(A[i]*Tita_*2/bt[i]*((delta_0-1)**2)**(
-                0.5/bt[i]-1)+2*Bi[i]*a4[i]*((delta_0-1)**2)**(a4[i]-1))
-            Deltadd_ = Deltad_/(delta_0-1)+(delta_0-1)**2*(
-                4*Bi[i]*a4[i]*(a4[i]-1)*((delta_0-1)**2)**(
-                    a4[i]-2)+2*A[i]**2/bt[i]**2*(((delta_0-1)**2)**(
-                        0.5/bt[i]-1))**2+A[i]*Tita_*4/bt[i]*(0.5/bt[i]-1)*((
-                            delta_0-1)**2)**(0.5/bt[i]-2))
-            DeltaBd_ = b[i]*Delta_**(b[i]-1)*Deltad_
-            DeltaBdd_ = b[i]*(Delta_**(b[i]-1)*Deltadd_+(b[i]-1)*Delta_**(
-                b[i]-2)*Deltad_**2)
-            F_ = exp(-Ci[i]*(delta_0-1)**2-D[i]*(tau-1)**2)
-            Fd_ = -2*Ci[i]*F_*(delta_0-1)
-            Fdd_ = 2*Ci[i]*F_*(2*Ci[i]*(delta_0-1)**2-1)
-
-            B += nr4[i]*(Delta_**b[i]*(F_+delta_0*Fd_)+DeltaBd_*delta_0*F_)
-            C += nr4[i]*(Delta_**b[i]*(2*Fd_+delta_0*Fdd_)+2*DeltaBd_*(
-                F_+delta_0*Fd_)+DeltaBdd_*delta_0*F_)
+            fir += n*Delta**b*delta*F
+            fird += n*(Delta**b*(F+delta*Fd)+DeltaBd*delta*F)
+            firdd += n*(Delta**b*(2*Fd+delta*Fdd) + 2*DeltaBd*(F+delta*Fd) +
+                        DeltaBdd*delta*F)
+            firt += n*delta*(DeltaBt*F+Delta**b*Ft)
+            firtt += n*delta*(DeltaBtt*F+2*DeltaBt*Ft+Delta**b*Ftt)
+            firdt += n*(Delta**b*(Ft+delta*Fdt)+delta*DeltaBd*Ft +
+                        DeltaBt*(F+delta*Fd)+DeltaBdt*delta*F)
 
         prop = {}
         prop["fir"] = fir
@@ -1260,17 +1301,132 @@ class MEoS(_fase):
         prop["fird"] = fird
         prop["firdd"] = firdd
         prop["firdt"] = firdt
+        return prop
+
+    def _virial(self, T):
+        """Virial coefficient
+
+        Parameters
+        ----------
+        T : float
+            Temperature [K]
+
+        Returns
+        -------
+        prop : dictionary with residual adimensional helmholtz energy and deriv
+            B: [∂fir/∂δ]δ->0  [-]
+            C: [∂²fir/∂δ²]δ->0  [-]
+        """
+        Tc = self._constants.get("Tref", self.Tc)
+        tau = Tc/T
+        B = C = 0
+        delta = 1e-200
+
+        # Polinomial terms
+        nr1 = self._constants.get("nr1", [])
+        d1 = self._constants.get("d1", [])
+        t1 = self._constants.get("t1", [])
+        for n, d, t in zip(nr1, d1, t1):
+            B += n*d*delta**(d-1)*tau**t
+            C += n*d*(d-1)*delta**(d-2)*tau**t
+
+        # Exponential terms
+        nr2 = self._constants.get("nr2", [])
+        d2 = self._constants.get("d2", [])
+        g2 = self._constants.get("gamma2", [])
+        t2 = self._constants.get("t2", [])
+        c2 = self._constants.get("c2", [])
+        for n, d, g, t, c in zip(nr2, d2, g2, t2, c2):
+            B += n*exp(-g*delta**c)*delta**(d-1)*tau**t*(d-g*c*delta**c)
+            C += n*exp(-g*delta**c)*(delta**(d-2)*tau**t*(
+                (d-g*c*delta**c)*(d-1-g*c*delta**c)-g**2*c**2*delta**c))
+
+        # Gaussian terms
+        nr3 = self._constants.get("nr3", [])
+        d3 = self._constants.get("d3", [])
+        t3 = self._constants.get("t3", [])
+        a3 = self._constants.get("alfa3", [])
+        e3 = self._constants.get("epsilon3", [])
+        b3 = self._constants.get("beta3", [])
+        g3 = self._constants.get("gamma3", [])
+        for n, d, t, a, e, b, g in zip(nr3, d3, t3, a3, e3, b3, g3):
+            B += n*delta**d*tau**t*exp(-a*(delta-e)**2-b*(tau-g)**2)*(
+                    d/delta-2*a*(delta-e))
+            C += n*tau**t*exp(-a*(delta-e)**2-b*(tau-g)**2)*(
+                    -2*a*delta**d+4*a**2*delta**d*(
+                        delta-e)**2-4*d*a*delta**2*(
+                            delta-e)+d*2*delta)
+
+        # Non analitic terms
+        nr4 = self._constants.get("nr4", [])
+        a4 = self._constants.get("a4", [])
+        b4 = self._constants.get("b4", [])
+        Ai = self._constants.get("A", [])
+        Bi = self._constants.get("B", [])
+        Ci = self._constants.get("C", [])
+        Di = self._constants.get("D", [])
+        bt4 = self._constants.get("beta4", [])
+        for n, a, b, A, B, C, D, bt in zip(nr4, a4, b4, Ai, Bi, Ci, Di, bt4):
+            Tita = (1-tau)+A*((delta-1)**2)**(0.5/bt)
+            Delta = Tita**2+B*((delta-1)**2)**a
+            Deltad = (delta-1)*(A*Tita*2/bt*((delta-1)**2)**(
+                0.5/bt-1)+2*B*a*((delta-1)**2)**(a-1))
+            Deltadd = Deltad/(delta-1) + (delta-1)**2*(
+                4*B*a*(a-1)*((delta-1)**2)**(a-2) +
+                2*A**2/bt**2*(((delta-1)**2)**(0.5/bt-1))**2 +
+                A*Tita*4/bt*(0.5/bt-1)*((delta-1)**2)**(0.5/bt-2))
+            DeltaBd = b*Delta**(b-1)*Deltad
+            DeltaBdd = b*(Delta**(b-1)*Deltadd+(b-1)*Delta**(b-2)*Deltad**2)
+            F = exp(-C*(delta-1)**2-D*(tau-1)**2)
+            Fd = -2*C*F*(delta-1)
+            Fdd = 2*C*F*(2*C*(delta-1)**2-1)
+
+            B += n*(Delta**b*(F+delta*Fd)+DeltaBd*delta*F)
+            C += n*(Delta**b*(2*Fd+delta*Fdd)+2*DeltaBd*(F+delta*Fd) +
+                    DeltaBdd*delta*F)
+
+        prop = {}
         prop["B"] = B
         prop["C"] = C
         return prop
 
     def _derivDimensional(self, rho, T):
-        """Return the dimensional form or Helmholtz free energy derivatives
+        """Calcule the dimensional form or Helmholtz free energy derivatives
+
+        Parameters
+        ----------
+        rho : float
+            Density [kg/m³]
+        T : float
+            Temperature [K]
+
+        Returns
+        -------
+        prop : dictionary with residual helmholtz energy and derivatives
+            fir  [kJ/kg]
+            firt: [∂fir/∂T]ρ  [kJ/kgK]
+            fird: [∂fir/∂ρ]T  [kJ/m³kg²]
+            firtt: [∂²fir/∂T²]ρ  [kJ/kgK²]
+            firdt: [∂²fir/∂T∂ρ]  [kJ/m³kg²K]
+            firdd: [∂²fir/∂ρ²]T  [kJ/m⁶kg]
+
+        References
+        ----------
         IAPWS, Guideline on an Equation of State for Humid Air in Contact with
         Seawater and Ice, Consistent with the IAPWS Formulation 2008 for the
         Thermodynamic Properties of Seawater, Table 7,
         http://www.iapws.org/relguide/SeaAir.html
         """
+        if not rho:
+            prop = {}
+            prop["fir"] = 0
+            prop["firt"] = 0
+            prop["fird"] = 0
+            prop["firtt"] = 0
+            prop["firdt"] = 0
+            prop["firdd"] = 0
+            return prop
+
         R = self._constants.get("R")/self._constants.get("M", self.M)
         rhoc = self._constants.get("rhoref", self.rhoc)
         Tc = self._constants.get("Tref", self.Tc)
@@ -1300,6 +1456,31 @@ class MEoS(_fase):
         prop["firdt"] = R/rhoc*(fiod+fird-firdt*tau)
         prop["firdd"] = R*T/rhoc**2*(fiodd+firdd)
         return prop
+
+    def _surface(self, T):
+        """Generic equation for the surface tension
+
+        Parameters
+        ----------
+        T : float
+            Temperature [K]
+
+        Returns
+        -------
+        sigma : float
+            Surface tension [N/m]
+
+        Notes
+        -----
+        Need a _surf dict in the derived class with the parameters keys:
+            sigma: coefficient
+            exp: exponent
+        """
+        tau = 1-T/self.Tc
+        sigma = 0
+        for n, t in zip(self._surf["sigma"], self._surf["exp"]):
+            sigma += n*tau**t
+        return sigma
 
     @classmethod
     def _Vapor_Pressure(cls, T):
@@ -1331,7 +1512,7 @@ class MEoS(_fase):
 
     @classmethod
     def _Liquid_Density(cls, T):
-        """Auxiliary equation for the density or saturated liquid
+        """Auxiliary equation for the density of saturated liquid
 
         Parameters
         ----------
@@ -1362,7 +1543,7 @@ class MEoS(_fase):
 
     @classmethod
     def _Vapor_Density(cls, T):
-        """Auxiliary equation for the density or saturated vapor
+        """Auxiliary equation for the density of saturated vapor
 
         Parameters
         ----------
@@ -1808,14 +1989,16 @@ class IAPWS95(MEoS):
 
     def _visco(self, rho, T, fase):
         ref = IAPWS95()
-        estado = ref._Helmholtz(rho, 1.5*647.096)
-        drho = 1/estado["dpdrho"]*1e3
+        st = ref._Helmholtz(rho, 1.5*Tc)
+        delta = rho/rhoc
+        drho = 1e3/self.R/1.5/Tc/(1+2*delta*st["fird"]+delta**2*st["firdd"])
         return _Viscosity(rho, T, fase, drho)
 
     def _thermo(self, rho, T, fase):
         ref = IAPWS95()
-        estado = ref._Helmholtz(rho, 1.5*647.096)
-        drho = 1/estado["dpdrho"]*1e3
+        st = ref._Helmholtz(rho, 1.5*Tc)
+        delta = rho/rhoc
+        drho = 1e3/self.R/1.5/Tc/(1+2*delta*st["fird"]+delta**2*st["firdd"])
         return _ThCond(rho, T, fase, drho)
 
     def _surface(self, T):
@@ -1854,8 +2037,8 @@ class IAPWS95_Tx(IAPWS95):
 
 
 class D2O(MEoS):
-    """Implementation of IAPWS Formulation 1984 for heavy water substance,
-    (revised release of 2005), see MEoS __doc__
+    """Implementation of IAPWS Formulation for heavy water substance,
+    see MEoS __doc__
 
     Examples
     --------
@@ -1870,6 +2053,11 @@ class D2O(MEoS):
     http://www.iapws.org/relguide/D2O-2005.pdf
     IAPWS, Revised Advisory Note No. 3: Thermodynamic Derivatives from IAPWS
     Formulations, http://www.iapws.org/relguide/Advise3.pdf
+
+    Notes
+    -----
+    The implemented correlation isn't the current IAPWS formulation, it's the
+    preliminary equation to be presented at the 2017 IAPWS meetings.
     """
     name = "heavy water"
     CASNumber = "7789-20-0"
@@ -1884,43 +2072,84 @@ class D2O(MEoS):
     f_acent = 0.364
     momentoDipolar = 1.9
 
-    Fi0 = {'ao_log': [1, 2.9176485],
-           'ao_pow': [-5.60420745, 5.4495718, 0.100195196505025,
-                      -0.2844660508898171, 0.06437609920676933,
-                      -0.005436994367359454],
-           'pow': [0, 1, -1.0, -2.0, -3.0, -4.0],
-           'ao_exp': [], 'titao': []}
+    # Fi0 = {"ao_log": [0.5399322597e-2, 0],
+    #        "pow": [0, 1, 2, 3, 4, 5],
+    #        "ao_pow": [0.3087155964e2, -.3827264031e2, 0.4424799189,
+    #                   -.1256336874e1, 0.2843343470, -.2401555088e-1],
+    #        "tau*logtau": -.1288399716e2,
+    #        "tau*logdelta": 0.4415884023e1,
+    #        "ao_exp": [], "titao": [],
+    #        "ao_hyp": [], "hyp": []}
+
+    # _constants = {
+    #     "R": 8.3143565, "rhoref": 17.875414*M, "Tref": 643.89,
+
+    #     "nr1": [-0.384820628204e3, 0.108213047259e4, -0.110768260635e4,
+    #             0.164668954246e4, -0.137959852228e4, 0.598964185629e3,
+    #             -0.100451752702e3, 0.419192736351e3, -0.107279987867e4,
+    #             0.653852283544e3, -0.984305985655e3, 0.845444459339e3,
+    #             -0.376799930490e3, 0.644512590492e2, -0.214911115714e3,
+    #             0.531113962967e3, -0.135454224420e3, 0.202814416558e3,
+    #             -0.178293865031e3, 0.818739394970e2, -0.143312594493e2,
+    #             0.651202383207e2, -0.171227351208e3, 0.100859921516e2,
+    #             -0.144684680657e2, 0.128871134847e2, -0.610605957134e1,
+    #             0.109663804408e1, -0.115734899702e2, 0.374970075409e2,
+    #             0.897967147669, -0.527005883203e1, 0.438084681795e-1,
+    #             0.406772082680, -0.965258571044e-2, -0.119044600379e-1],
+    #     "d1": [1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3,
+    #            4, 4, 4, 4, 4, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8],
+    #     "t1": [0, 1, 2, 3, 4, 5, 6, 0, 1, 2, 3, 4, 5, 6, 0, 1, 2, 3, 4, 5, 6,
+    #            0, 1, 2, 3, 4, 5, 6, 0, 1, 0, 1, 0, 1, 0, 1],
+
+    #     "nr2": [0.382589102341e3, -0.106406466204e4, 0.105544952919e4,
+    #             -0.157579942855e4, 0.132703387531e4, -0.579348879870e3,
+    #             0.974163902526e2, 0.286799294226e3, -0.127543020847e4,
+    #             0.275802674911e4, -0.381284331492e4, 0.293755152012e4,
+    #             -0.117858249946e4, 0.186261198012e3],
+    #     "c2": [1]*14,
+    #     "d2": [1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2],
+    #     "t2": [0, 1, 2, 3, 4, 5, 6, 0, 1, 2, 3, 4, 5, 6],
+    #     "gamma2": [1.5394]*14}
+
+    Fi0 = {"ao_log": [1, 3],
+           "pow": [0, 1, 2, 3, 4, 5],
+           "ao_pow": [-8.6739710041, 6.9611755531],
+           "tau*logtau": -.1288399716e2,
+           "tau*logdelta": 0.4415884023e1,
+           "ao_exp": [0.00863, 0.97454, 2.0646, 0.23528, 0.29555],
+           "titao": [0.4255669437, 2.6093155672, 6.0185106089, 11.3380974051,
+                     29.5101165339],
+           "ao_hyp": [], "hyp": []}
 
     _constants = {
-        "R": 8.3143565,
-        "rhoref": 358.,
+        "R": 8.3144621, "rhoref": 17.77555*M, "Tref": 643.847,
 
-        "nr1": [-0.384820628204e3, 0.108213047259e4, -0.110768260635e4,
-                0.164668954246e4, -0.137959852228e4, 0.598964185629e3,
-                -0.100451752702e3, 0.419192736351e3, -0.107279987867e4,
-                0.653852283544e3, -0.984305985655e3, 0.845444459339e3,
-                -0.376799930490e3, 0.644512590492e2, -0.214911115714e3,
-                0.531113962967e3, -0.135454224420e3, 0.202814416558e3,
-                -0.178293865031e3, 0.818739394970e2, -0.143312594493e2,
-                0.651202383207e2, -0.171227351208e3, 0.100859921516e2,
-                -0.144684680657e2, 0.128871134847e2, -0.610605957134e1,
-                0.109663804408e1, -0.115734899702e2, 0.374970075409e2,
-                0.897967147669, -0.527005883203e1, 0.438084681795e-1,
-                0.406772082680, -0.965258571044e-2, -0.119044600379e-1],
-        "d1": [1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3,
-               4, 4, 4, 4, 4, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8],
-        "t1": [0, 1, 2, 3, 4, 5, 6, 0, 1, 2, 3, 4, 5, 6, 0, 1, 2, 3, 4, 5, 6,
-               0, 1, 2, 3, 4, 5, 6, 0, 1, 0, 1, 0, 1, 0, 1],
+        "nr1": [0.0105835, 0.99127253, -1.224122, 1.710643, -2.189443,
+                0.1145315],
+        "d1": [4.0, 1.0, 1.0, 2.0, 2.0, 3.0],
+        "t1": [1.0, 0.463, 1.29, 1.307, 1.2165, 0.587],
 
-        "nr2": [0.382589102341e3, -0.106406466204e4, 0.105544952919e4,
-                -0.157579942855e4, 0.132703387531e4, -0.579348879870e3,
-                0.974163902526e2, 0.286799294226e3, -0.127543020847e4,
-                0.275802674911e4, -0.381284331492e4, 0.293755152012e4,
-                -0.117858249946e4, 0.186261198012e3],
-        "c2": [1]*14,
-        "d2": [1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2],
-        "t2": [0, 1, 2, 3, 4, 5, 6, 0, 1, 2, 3, 4, 5, 6],
-        "gamma2": [1.5394]*14}
+        "nr2": [-0.89875532, -1.597051, -2.804509, 0.33016885,
+                -3.396526, -0.001881],
+        "c2": [1.0, 2.0, 2.0, 1.0, 2.0, 1.0],
+        "d2": [1.0, 1.0, 3.0, 2.0, 2.0, 8.0],
+        "t2": [2.95, 1.713, 1.929, 0.94, 3.033, 0.765],
+        "gamma2": [1]*6,
+
+        "nr3": [-0.70355957, -0.20345481, -0.70691398, 2.094255, 3.042546,
+                0.8010728, 0.213384, 0.32335789, -0.0245055, 0.7380677,
+                -0.21484089],
+        "t3": [1.504, 2.85, 1.96, 0.969, 2.576, 2.79, 3.581, 3.67, 1.7, 1.0,
+               4.1],
+        "d3": [1.0, 2.0, 3.0, 1.0, 3.0, 1.0, 1.0, 2.0, 2.0, 2.0, 1.0],
+        "beta3": [0.907, 0.48, 1.223, 2.61, 4.283, 1.4, 0.735, 0.24, 1067.0,
+                  13.27, 1.48],
+        "alfa3": [0.982, 1.34, 1.658, 1.6235, 1.4, 2.206, 0.84, 1.535, 11.33,
+                  3.86, 7.56],
+        "epsilon3": [2.272, 1.375, 0.648, 0.8925, 0.145, 0.291, 2.01, 1.08,
+                     0.96, 0.181, 0.529],
+        "gamma3": [2.263, 2.343, 0.929, 1.0, 1.383, 0.968, 1.695, 2.23, 1.07,
+                   1.297, 2.41]}
 
     _Pv = {
         "ao": [-0.80236e1, 0.23957e1, -0.42639e2, 0.99569e2, -0.62135e2],

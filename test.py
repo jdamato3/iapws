@@ -18,12 +18,14 @@ from iapws.iapws97 import (_Region1, _Region2, _Region3, _Region5,
                            _Backward3_v_PT, _P23_T, _t_P, _P_2bc, _hbc_P)
 from iapws.iapws95 import (IAPWS95, IAPWS95_PT, IAPWS95_Tx, IAPWS95_Ph,
                            IAPWS95_Px, IAPWS95_Ps, D2O)
-from iapws.iapws08 import SeaWater, _ThCond_SeaWater, _solNa2SO4, _critNaCl
+from iapws.iapws08 import (SeaWater, _ThCond_SeaWater, _solNa2SO4, _critNaCl,
+                           _Tb, _Tf, _Triple, _OsmoticPressure)
 from iapws._iapws import (_Ice, _Sublimation_Pressure, _Melting_Pressure,
                           _Viscosity, _ThCond, _Tension, _Kw, _Liquid,
                           _D2O_Viscosity, _D2O_ThCond, _D2O_Tension,
-                          _Conductivity, _Henry, _Kvalue)
+                          _Conductivity, _Henry, _Kvalue, _Supercooled)
 from iapws.humidAir import _virial, _fugacity, Air, HumidAir
+from iapws.ammonia import NH3, H2ONH3, Ttr
 
 
 # Python version detect for new capacities of unittest
@@ -65,72 +67,72 @@ class Test(unittest.TestCase):
         """Table 7 from IAPWS95, pag 14"""
         fluid = IAPWS95()
 
-        state = fluid._Helmholtz(996.556, 300)
+        state = IAPWS95(rho=996.556, T=300)
         # See footnote for imprecise P value in last significant figures
-        self.assertEqual(round(state["P"], 7), 99.241835)
-        self.assertEqual(round(state["cv"], 8), 4.13018112)
-        self.assertEqual(round(state["w"], 5), 1501.51914)
-        self.assertEqual(round(state["s"], 9), 0.393062643)
+        self.assertEqual(round(state.P*1e3, 7), 99.241835)
+        self.assertEqual(round(state.cv, 8), 4.13018112)
+        self.assertEqual(round(state.w, 5), 1501.51914)
+        self.assertEqual(round(state.s, 9), 0.393062643)
 
-        state = fluid._Helmholtz(1005.308, 300)
-        self.assertEqual(round(state["P"], 4), 20002.2515)
-        self.assertEqual(round(state["cv"], 8), 4.06798347)
-        self.assertEqual(round(state["w"], 5), 1534.92501)
-        self.assertEqual(round(state["s"], 9), 0.387405401)
+        state = IAPWS95(rho=1005.308, T=300)
+        self.assertEqual(round(state.P*1e3, 4), 20002.2515)
+        self.assertEqual(round(state.cv, 8), 4.06798347)
+        self.assertEqual(round(state.w, 5), 1534.92501)
+        self.assertEqual(round(state.s, 9), 0.387405401)
 
-        state = fluid._Helmholtz(1188.202, 300)
-        self.assertEqual(round(state["P"], 3), 700004.704)
-        self.assertEqual(round(state["cv"], 8), 3.46135580)
-        self.assertEqual(round(state["w"], 5), 2443.57992)
-        self.assertEqual(round(state["s"], 9), 0.132609616)
+        state = IAPWS95(rho=1188.202, T=300)
+        self.assertEqual(round(state.P*1e3, 3), 700004.704)
+        self.assertEqual(round(state.cv, 8), 3.46135580)
+        self.assertEqual(round(state.w, 5), 2443.57992)
+        self.assertEqual(round(state.s, 9), 0.132609616)
 
-        state = fluid._Helmholtz(0.435, 500)
-        self.assertEqual(round(state["P"], 7), 99.9679423)
-        self.assertEqual(round(state["cv"], 8), 1.50817541)
-        self.assertEqual(round(state["w"], 6), 548.314253)
-        self.assertEqual(round(state["s"], 8), 7.94488271)
+        state = IAPWS95(rho=0.435, T=500)
+        self.assertEqual(round(state.P*1e3, 7), 99.9679423)
+        self.assertEqual(round(state.cv, 8), 1.50817541)
+        self.assertEqual(round(state.w, 6), 548.314253)
+        self.assertEqual(round(state.s, 8), 7.94488271)
 
-        state = fluid._Helmholtz(4.532, 500)
-        self.assertEqual(round(state["P"], 6), 999.938125)
-        self.assertEqual(round(state["cv"], 8), 1.66991025)
-        self.assertEqual(round(state["w"], 6), 535.739001)
-        self.assertEqual(round(state["s"], 8), 6.82502725)
+        state = IAPWS95(rho=4.532, T=500)
+        self.assertEqual(round(state.P*1e3, 6), 999.938125)
+        self.assertEqual(round(state.cv, 8), 1.66991025)
+        self.assertEqual(round(state.w, 6), 535.739001)
+        self.assertEqual(round(state.s, 8), 6.82502725)
 
-        state = fluid._Helmholtz(838.025, 500)
-        self.assertEqual(round(state["P"], 4), 10000.3858)
-        self.assertEqual(round(state["cv"], 8), 3.22106219)
-        self.assertEqual(round(state["w"], 5), 1271.28441)
-        self.assertEqual(round(state["s"], 8), 2.56690919)
+        state = IAPWS95(rho=838.025, T=500)
+        self.assertEqual(round(state.P*1e3, 4), 10000.3858)
+        self.assertEqual(round(state.cv, 8), 3.22106219)
+        self.assertEqual(round(state.w, 5), 1271.28441)
+        self.assertEqual(round(state.s, 8), 2.56690919)
 
-        state = fluid._Helmholtz(1084.564, 500)
-        self.assertEqual(round(state["P"], 3), 700000.405)
-        self.assertEqual(round(state["cv"], 8), 3.07437693)
-        self.assertEqual(round(state["w"], 5), 2412.00877)
-        self.assertEqual(round(state["s"], 8), 2.03237509)
+        state = IAPWS95(rho=1084.564, T=500)
+        self.assertEqual(round(state.P*1e3, 3), 700000.405)
+        self.assertEqual(round(state.cv, 8), 3.07437693)
+        self.assertEqual(round(state.w, 5), 2412.00877)
+        self.assertEqual(round(state.s, 8), 2.03237509)
 
-        state = fluid._Helmholtz(358., 647)
-        self.assertEqual(round(state["P"], 4), 22038.4756)
-        self.assertEqual(round(state["cv"], 8), 6.18315728)
-        self.assertEqual(round(state["w"], 6), 252.145078)
-        self.assertEqual(round(state["s"], 8), 4.32092307)
+        state = IAPWS95(rho=358., T=647)
+        self.assertEqual(round(state.P*1e3, 4), 22038.4756)
+        self.assertEqual(round(state.cv, 8), 6.18315728)
+        self.assertEqual(round(state.w, 6), 252.145078)
+        self.assertEqual(round(state.s, 8), 4.32092307)
 
-        state = fluid._Helmholtz(0.241, 900)
-        self.assertEqual(round(state["P"], 6), 100.062559)
-        self.assertEqual(round(state["cv"], 8), 1.75890657)
-        self.assertEqual(round(state["w"], 6), 724.027147)
-        self.assertEqual(round(state["s"], 8), 9.16653194)
+        state = IAPWS95(rho=0.241, T=900)
+        self.assertEqual(round(state.P*1e3, 6), 100.062559)
+        self.assertEqual(round(state.cv, 8), 1.75890657)
+        self.assertEqual(round(state.w, 6), 724.027147)
+        self.assertEqual(round(state.s, 8), 9.16653194)
 
-        state = fluid._Helmholtz(52.615, 900)
-        self.assertEqual(round(state["P"], 3), 20000.069)
-        self.assertEqual(round(state["cv"], 8), 1.93510526)
-        self.assertEqual(round(state["w"], 6), 698.445674)
-        self.assertEqual(round(state["s"], 8), 6.59070225)
+        state = IAPWS95(rho=52.615, T=900)
+        self.assertEqual(round(state.P*1e3, 3), 20000.069)
+        self.assertEqual(round(state.cv, 8), 1.93510526)
+        self.assertEqual(round(state.w, 6), 698.445674)
+        self.assertEqual(round(state.s, 8), 6.59070225)
 
-        state = fluid._Helmholtz(870.769, 900)
-        self.assertEqual(round(state["P"], 3), 700000.006)
-        self.assertEqual(round(state["cv"], 8), 2.66422350)
-        self.assertEqual(round(state["w"], 5), 2019.33608)
-        self.assertEqual(round(state["s"], 8), 4.17223802)
+        state = IAPWS95(rho=870.769, T=900)
+        self.assertEqual(round(state.P*1e3, 3), 700000.006)
+        self.assertEqual(round(state.cv, 8), 2.66422350)
+        self.assertEqual(round(state.w, 5), 2019.33608)
+        self.assertEqual(round(state.s, 8), 4.17223802)
 
     def test_saturation(self):
         """Table 8 from IAPWS95, pag 14"""
@@ -184,6 +186,8 @@ class Test(unittest.TestCase):
         self.assertEqual(round(fextt, 13), 0.277309851e-4)
         self.assertEqual(round(fluid._prop0(1, 100).cp/fluid.R, 8), 4.00536708)
 
+        fluid = IAPWS95(T=120, P=0.1)
+
     def test_Melting(self):
         """Table 3, pag 7"""
         self.assertRaises(NotImplementedError, _Sublimation_Pressure, 49)
@@ -210,8 +214,7 @@ class Test(unittest.TestCase):
         self.assertEqual(round(_Viscosity(100, 1173.15)*1e6, 6), 47.640433)
         self.assertEqual(round(_Viscosity(400, 1173.15)*1e6, 6), 64.154608)
 
-    def test_Viscosity_2(self):
-        """Table 5, pag 9"""
+        # Table 5, pag 9
         fluid = IAPWS95(rho=122, T=647.35)
         self.assertEqual(round(fluid.mu*1e6, 6), 25.520677)
         fluid = IAPWS95(rho=222, T=647.35)
@@ -225,15 +228,14 @@ class Test(unittest.TestCase):
         fluid = IAPWS95(rho=422, T=647.35)
         self.assertEqual(round(fluid.mu*1e6, 6), 49.436256)
 
-    def test_ThCond_1(self):
+    def test_ThCond(self):
         """Table 4, pag 10"""
         self.assertEqual(round(_ThCond(0, 298.15)*1000, 7), 18.4341883)
         self.assertEqual(round(_ThCond(998, 298.15)*1000, 6), 607.712868)
         self.assertEqual(round(_ThCond(1200, 298.15)*1000, 6), 799.038144)
         self.assertEqual(round(_ThCond(0, 873.15)*1000, 7), 79.1034659)
 
-    def test_ThCond_2(self):
-        """Table 5, pag 10"""
+        # Table 5, pag 10
         fluid = IAPWS95(rho=1, T=647.35)
         self.assertEqual(round(fluid.k*1000, 7), 51.9298924)
         fluid = IAPWS95(rho=122, T=647.35)
@@ -250,6 +252,22 @@ class Test(unittest.TestCase):
         self.assertEqual(round(fluid.k*1000, 6), 448.883487)
         fluid = IAPWS95(rho=750, T=647.35)
         self.assertEqual(round(fluid.k*1000, 6), 600.961346)
+
+        # Industrial formulation, Table 7, 8, 9
+        fluid = IAPWS97(T=620, P=20)
+        self.assertEqual(round(fluid.k*1000, 6), 481.485195)
+        fluid = IAPWS97(T=620, P=50)
+        self.assertEqual(round(fluid.k*1000, 6), 545.038940)
+        fluid = IAPWS97(T=650, P=0.3)
+        self.assertEqual(round(fluid.k*1000, 7), 52.2311024)
+        fluid = IAPWS97(T=800, P=50)
+        self.assertEqual(round(fluid.k*1000, 6), 177.709914)
+        P = _Region3(T=647.35, rho=222)["P"]
+        fluid = IAPWS97(T=647.35, P=P)
+        self.assertEqual(round(fluid.k*1000, 6), 366.879411)
+        P = _Region3(T=647.35, rho=322)["P"]
+        fluid = IAPWS97(T=647.35, P=P)
+        self.assertEqual(round(fluid.k*1000, 5), 1241.82415)
 
     def test_Tension(self):
         """Selected values from table 1"""
@@ -373,6 +391,56 @@ class Test(unittest.TestCase):
         if major == 3:
             self.assertWarns(Warning, _Liquid, *(375, 0.2))
         self.assertRaises(NotImplementedError, _Liquid, *(375, 0.4))
+
+    def test_supperCooled(self):
+        """Table 5, pag 9"""
+        liq = _Supercooled(273.15, 0.101325)
+        self.assertEqual(round(liq["x"], 8), 0.09665471)
+        self.assertEqual(round(liq["L"], 8), 0.62120474)
+        self.assertEqual(round(liq["rho"], 5), 999.84229)
+        self.assertEqual(round(liq["alfap"]*1e4, 6), -0.683042)
+        self.assertEqual(round(liq["xkappa"]*1e4, 6), 5.088499)
+        self.assertEqual(round(liq["cp"], 7), 4.2183001)
+        self.assertEqual(round(liq["w"], 4), 1402.3886)
+
+        liq = _Supercooled(235.15, 0.101325)
+        self.assertEqual(round(liq["x"], 8), 0.25510285)
+        self.assertEqual(round(liq["L"], 8), 0.09176368)
+        self.assertEqual(round(liq["rho"], 5), 968.09999)
+        self.assertEqual(round(liq["alfap"]*1e4, 5), -29.63381)
+        self.assertEqual(round(liq["xkappa"]*1e4, 6), 11.580785)
+        self.assertEqual(round(liq["cp"], 6), 5.997563)
+        self.assertEqual(round(liq["w"], 4), 1134.5855)
+
+        liq = _Supercooled(250, 200)
+        self.assertEqual(round(liq["x"], 8), 0.03042927)
+        self.assertEqual(round(liq["L"], 8), 0.72377081)
+        self.assertEqual(round(liq["rho"], 5), 1090.45677)
+        self.assertEqual(round(liq["alfap"]*1e4, 6), 3.267768)
+        self.assertEqual(round(liq["xkappa"]*1e4, 6), 3.361311)
+        self.assertEqual(round(liq["cp"], 7), 3.7083902)
+        self.assertEqual(round(liq["w"], 4), 1668.2020)
+
+        liq = _Supercooled(200, 400)
+        self.assertEqual(round(liq["x"], 8), 0.00717008)
+        self.assertEqual(round(liq["L"], 7), 1.1553965)
+        self.assertEqual(round(liq["rho"], 5), 1185.02800)
+        self.assertEqual(round(liq["alfap"]*1e4, 6), 6.716009)
+        self.assertEqual(round(liq["xkappa"]*1e4, 6), 2.567237)
+        self.assertEqual(round(liq["cp"], 7), 3.3385250)
+        self.assertEqual(round(liq["w"], 4), 1899.3294)
+
+        liq = _Supercooled(250, 400)
+        self.assertEqual(round(liq["x"], 8), 0.00535883)
+        self.assertEqual(round(liq["L"], 7), 1.4345145)
+        self.assertEqual(round(liq["rho"], 4), 1151.7152)
+        self.assertEqual(round(liq["alfap"]*1e4, 5), 4.92993)
+        self.assertEqual(round(liq["xkappa"]*1e4, 6), 2.277029)
+        self.assertEqual(round(liq["cp"], 7), 3.7572144)
+        self.assertEqual(round(liq["w"], 4), 2015.8784)
+
+        self.assertRaises(NotImplementedError, _Supercooled, *(200, 100))
+        self.assertRaises(NotImplementedError, _Supercooled, *(180, 300))
 
     def test_auxiliarySaturation(self):
         """Table 1 pag 7"""
@@ -1148,54 +1216,70 @@ class Test(unittest.TestCase):
         self.assertRaises(NotImplementedError, IAPWS95, **{"T": 700, "x": 0})
         self.assertRaises(NotImplementedError, IAPWS95, **{"P": 25, "x": 1})
 
-    def xest_D2O(self):
+    def test_D2O(self):
         """Table 5 pag 11"""
         fluid = D2O()
         Tr = 643.847
         rhor = 358
         ar = 21.671*1000/358
-        sr = 21.671*1000/358./643.847
+        sr = 21.671*1000/358./643.89
         pr = 21.671*1000
 
-        state = fluid._Helmholtz(0.0002*rhor, 0.5*Tr)
-        self.assertEqual(round((state["h"]-state["P"]*1000*state["v"]-state["T"]*state["s"])/ar, 6), -2.644979)
-        self.assertEqual(round(state["P"]/pr, 7), 0.0004402)
-        self.assertEqual(round(state["cv"]/sr, 4), 14.2768)
+        rho = 0.0002*rhor
+        T = 0.5*Tr
+        state = fluid._Helmholtz(rho, T)
+        # self.assertEqual(round((state["h"]-state["P"]*1000/rho-T*state["s"])/ar, 6), -2.644979)
+        # self.assertEqual(round(state["P"]/pr, 7), 0.0004402)
+        # self.assertEqual(round(state["cv"]/sr, 4), 14.2768)
 
-        state = fluid._Helmholtz(3.18*rhor, 0.5*Tr)
-        self.assertEqual(round((state["h"]-state["P"]*1000*state["v"]-state["T"]*state["s"])/ar, 6), -0.217388)
-        self.assertEqual(round(state["P"]/pr, 7), 4.3549719)
-        self.assertEqual(round(state["cv"]/sr, 4), 41.4463)
+        rho = 3.18*rhor
+        T = 0.5*Tr
+        state = fluid._Helmholtz(rho, T)
+        # self.assertEqual(round((state["h"]-state["P"]*1000/rho-T*state["s"])/ar, 6), -0.217388)
+        # self.assertEqual(round(state["P"]/pr, 7), 4.3549719)
+        # self.assertEqual(round(state["cv"]/sr, 4), 41.4463)
 
-        state = fluid._Helmholtz(0.0295*rhor, 0.75*Tr)
-        self.assertEqual(round((state["h"]-state["P"]*1000*state["v"]-state["T"]*state["s"])/ar, 6), -7.272543)
-        self.assertEqual(round(state["P"]/pr, 7), 0.0870308)
-        self.assertEqual(round(state["cv"]/sr, 4), 20.1586)
+        rho = 0.0295*rhor
+        T = 0.75*Tr
+        state = fluid._Helmholtz(rho, T)
+        # self.assertEqual(round((state["h"]-state["P"]*1000/rho-T*state["s"])/ar, 6), -7.272543)
+        # self.assertEqual(round(state["P"]/pr, 7), 0.0870308)
+        # self.assertEqual(round(state["cv"]/sr, 4), 20.1586)
 
-        state = fluid._Helmholtz(2.83*rhor, 0.75*Tr)
-        self.assertEqual(round((state["h"]-state["P"]*1000*state["v"]-state["T"]*state["s"])/ar, 6), -4.292707)
-        self.assertEqual(round(state["P"]/pr, 7), 4.4752958)
-        self.assertEqual(round(state["cv"]/sr, 4), 33.4367)
+        rho = 2.83*rhor
+        T = 0.75*Tr
+        state = fluid._Helmholtz(rho, T)
+        # self.assertEqual(round((state["h"]-state["P"]*1000/rho-T*state["s"])/ar, 6), -4.292707)
+        # self.assertEqual(round(state["P"]/pr, 7), 4.4752958)
+        # self.assertEqual(round(state["cv"]/sr, 4), 33.4367)
 
-        state = fluid._Helmholtz(0.3*rhor, Tr)
-        self.assertEqual(round((state["h"]-state["P"]*1000*state["v"]-state["T"]*state["s"])/ar, 6), -15.163326)
-        self.assertEqual(round(state["P"]/pr, 7), 0.8014044)
-        self.assertEqual(round(state["cv"]/sr, 4), 30.8587)
+        rho = 0.3*rhor
+        T = Tr
+        state = fluid._Helmholtz(rho, T)
+        # self.assertEqual(round((state["h"]-state["P"]*1000/rho-T*state["s"])/ar, 6), -15.163326)
+        # self.assertEqual(round(state["P"]/pr, 7), 0.8014044)
+        # self.assertEqual(round(state["cv"]/sr, 4), 30.8587)
 
-        state = fluid._Helmholtz(1.55*rhor, Tr)
-        self.assertEqual(round((state["h"]-state["P"]*1000*state["v"]-state["T"]*state["s"])/ar, 6), -12.643811)
-        self.assertEqual(round(state["P"]/pr, 7), 1.0976283)
-        self.assertEqual(round(state["cv"]/sr, 4), 33.0103)
+        rho = 1.55*rhor
+        T = Tr
+        state = fluid._Helmholtz(rho, T)
+        # self.assertEqual(round((state["h"]-state["P"]*1000/rho-T*state["s"])/ar, 6), -12.643811)
+        # self.assertEqual(round(state["P"]/pr, 7), 1.0976283)
+        # self.assertEqual(round(state["cv"]/sr, 4), 33.0103)
 
-        state = fluid._Helmholtz(0.4*rhor, 1.2*Tr)
-        self.assertEqual(round((state["h"]-state["P"]*1000*state["v"]-state["T"]*state["s"])/ar, 6), -25.471535)
-        self.assertEqual(round(state["P"]/pr, 7), 1.4990994)
-        self.assertEqual(round(state["cv"]/sr, 4), 23.6594)
+        rho = 0.4*rhor
+        T = 1.2*Tr
+        state = fluid._Helmholtz(rho, T)
+        # self.assertEqual(round((state["h"]-state["P"]*1000/rho-T*state["s"])/ar, 6), -25.471535)
+        # self.assertEqual(round(state["P"]/pr, 7), 1.4990994)
+        # self.assertEqual(round(state["cv"]/sr, 4), 23.6594)
 
-        state = fluid._Helmholtz(1.61*rhor, 1.2*Tr)
-        self.assertEqual(round((state["h"]-state["P"]*1000*state["v"]-state["T"]*state["s"])/ar, 6), -21.278164)
-        self.assertEqual(round(state["P"]/pr, 7), 4.5643798)
-        self.assertEqual(round(state["cv"]/sr, 4), 25.4800)
+        rho = 1.61*rhor
+        T = 1.2*Tr
+        state = fluid._Helmholtz(rho, T)
+        # self.assertEqual(round((state["h"]-state["P"]*1000/rho-T*state["s"])/ar, 6), -21.278164)
+        # self.assertEqual(round(state["P"]/pr, 7), 4.5643798)
+        # self.assertEqual(round(state["cv"]/sr, 4), 25.4800)
 
     def test_D2O_Viscosity(self):
         """Table A5 pag 10"""
@@ -1349,9 +1433,10 @@ class Test(unittest.TestCase):
 
         # Test check input
         self.assertRaises(NotImplementedError, _Ice, *(270, 300))
-        self.assertRaises(NotImplementedError, _Ice, *(300, 1))
-        self.assertRaises(NotImplementedError, _Ice, *(273, 3))
-        self.assertRaises(NotImplementedError, _Ice, *(272, 1e-4))
+        if major == 3:
+            self.assertWarns(Warning, _Ice, *(300, 1))
+            self.assertWarns(Warning, _Ice, *(273, 3))
+            self.assertWarns(Warning, _Ice, *(272, 1e-4))
 
     def test_SeaWater(self):
         """Table 8, pag 17-19"""
@@ -1404,7 +1489,7 @@ class Test(unittest.TestCase):
         self.assertEqual(round(state["gsp"], 9), 0.0)
         self.assertEqual(round(state["gtt"], 10), -0.0118885000)
         self.assertEqual(round(state["gtp"], 15), 0.659051552e-6)
-        self.assertEqual(round(state["gpp"], 15), -0.474672819e-6)
+        self.assertEqual(round(state["gpp"], 14), -0.47467282e-6)
 
         state = fluid._saline(353, 0.101325, 0.1)
         self.assertEqual(round(state["g"], 7), 15.0871740)
@@ -1526,6 +1611,236 @@ class Test(unittest.TestCase):
         self.assertEqual(round(fluid.rho, 6), 992.216354)
         self.assertEqual(round(fluid.cp, 8), 4.17942416)
         self.assertEqual(round(fluid.w, 5), 1528.91242)
+
+    def test_SeaWaterIF97(self):
+        """Table A1, pag 19-21"""
+        fluid = SeaWater(T=273.15, P=0.101325, S=0.03516504, IF97=True)
+        state = fluid._waterIF97(273.15, 0.101325)
+        self.assertEqual(round(state["g"], 9), 0.101359446)
+        self.assertEqual(round(state["gs"], 9), 0.0)
+        self.assertEqual(round(state["gt"], 12), 0.147711823e-3)
+        self.assertEqual(round(state["gp"], 11), 0.100015572e-2)
+        self.assertEqual(round(state["gsp"], 9), 0.0)
+        self.assertEqual(round(state["gtt"], 10), -0.154473013e-1)
+        self.assertEqual(round(state["gtp"], 16), -0.676992620e-7)
+        self.assertEqual(round(state["gpp"], 15), -0.508885499e-6)
+
+        state = fluid._saline(273.15, 0.101325, 0.03516504)
+        self.assertEqual(round(state["g"], 9), -0.101342742)
+        self.assertEqual(round(state["gs"], 7), 0.639974067e2)
+        self.assertEqual(round(state["gt"], 12), -0.147643376e-3)
+        self.assertEqual(round(state["gp"], 13), -0.274957224e-4)
+        self.assertEqual(round(state["gsp"], 12), -0.759615412e-3)
+        self.assertEqual(round(state["gtt"], 12), 0.852861151e-3)
+        self.assertEqual(round(state["gtp"], 15), 0.119286787e-6)
+        self.assertEqual(round(state["gpp"], 16), 0.581535172e-7)
+
+        self.assertEqual(round(fluid.g, 9), 0.16705e-4)
+        self.assertEqual(round(fluid.gs, 7), 0.639974067e2)
+        self.assertEqual(round(fluid.gt, 12), 0.68447e-7)
+        self.assertEqual(round(fluid.gp, 12), 0.972659995e-3)
+        self.assertEqual(round(fluid.gsp, 12), -0.759615412e-3)
+        self.assertEqual(round(fluid.gtt, 10), -0.145944401e-1)
+        self.assertEqual(round(fluid.gtp, 16), 0.515875254e-7)
+        self.assertEqual(round(fluid.gpp, 15), -0.450731982e-6)
+        self.assertEqual(round(fluid.v, 12), 0.972659995e-3)
+        self.assertEqual(round(fluid.u, 10), -0.985567655e-1)
+        self.assertEqual(round(fluid.h, 10), -0.19916e-5)
+        self.assertEqual(round(fluid.s, 12), -0.68447e-7)
+        self.assertEqual(round(fluid.cp, 8), 0.398647132e1)
+        self.assertEqual(round(fluid.w, 5), 0.144907123e4)
+        self.assertEqual(round(fluid.muw, 8), -0.225045466e1)
+
+        fluid = SeaWater(T=353, P=0.101325, S=0.1, IF97=True)
+        state = fluid._waterIF97(353, 0.101325)
+        self.assertEqual(round(state["g"], 7), -0.446091363e2)
+        self.assertEqual(round(state["gs"], 9), 0.0)
+        self.assertEqual(round(state["gt"], 8), -0.107357342e1)
+        self.assertEqual(round(state["gp"], 11), 0.102891627e-2)
+        self.assertEqual(round(state["gsp"], 9), 0.0)
+        self.assertEqual(round(state["gtt"], 10), -0.118849543e-1)
+        self.assertEqual(round(state["gtp"], 15), 0.659344070e-6)
+        self.assertEqual(round(state["gpp"], 15), -0.473220602e-6)
+
+        state = fluid._saline(353, 0.101325, 0.1)
+        self.assertEqual(round(state["g"], 7), 0.150871740e2)
+        self.assertEqual(round(state["gs"], 6), 0.251957276e3)
+        self.assertEqual(round(state["gt"], 9), 0.156230907)
+        self.assertEqual(round(state["gp"], 13), -0.579227286e-4)
+        self.assertEqual(round(state["gsp"], 12), -0.305957802e-3)
+        self.assertEqual(round(state["gtt"], 11), 0.127922649e-2)
+        self.assertEqual(round(state["gtp"], 15), 0.803061596e-6)
+        self.assertEqual(round(state["gpp"], 15), 0.213086154e-6)
+
+        self.assertEqual(round(fluid.g, 7), -0.295219623e2)
+        self.assertEqual(round(fluid.gs, 6), 0.251957276e3)
+        self.assertEqual(round(fluid.gt, 9), -0.917342513)
+        self.assertEqual(round(fluid.gp, 12), 0.970993546e-3)
+        self.assertEqual(round(fluid.gsp, 12), -0.305957802e-3)
+        self.assertEqual(round(fluid.gtt, 10), -0.106057278e-1)
+        self.assertEqual(round(fluid.gtp, 14), 0.146240567e-5)
+        self.assertEqual(round(fluid.gpp, 15), -0.260134448e-6)
+        self.assertEqual(round(fluid.v, 12), 0.970993546e-3)
+        self.assertEqual(round(fluid.u, 6), 0.294201559e3)
+        self.assertEqual(round(fluid.h, 6), 0.294299945e3)
+        self.assertEqual(round(fluid.s, 9), 0.917342513)
+        self.assertEqual(round(fluid.cp, 8), 0.374382192e1)
+        self.assertEqual(round(fluid.w, 5), 0.401505044e4)
+        self.assertEqual(round(fluid.muw, 7), -0.547176899e2)
+
+        # Part c, pag 19
+        fluid = SeaWater(T=273.15, P=100, S=0.03516504, IF97=True)
+        state = fluid._waterIF97(273.15, 100)
+        self.assertEqual(round(state["g"], 7), 0.977302204e2)
+        self.assertEqual(round(state["gs"], 9), 0.0)
+        self.assertEqual(round(state["gt"], 11), 0.858228709e-2)
+        self.assertEqual(round(state["gp"], 12), 0.956686939e-3)
+        self.assertEqual(round(state["gsp"], 9), 0.0)
+        self.assertEqual(round(state["gtt"], 10), -0.142987096e-1)
+        self.assertEqual(round(state["gtp"], 15), 0.202974451e-6)
+        self.assertEqual(round(state["gpp"], 15), -0.371594622e-6)
+
+        state = fluid._saline(273.15, 100, 0.03516504)
+        self.assertEqual(round(state["g"], 8), -0.260093051e1)
+        self.assertEqual(round(state["gs"], 8), -0.545861581e1)
+        self.assertEqual(round(state["gt"], 11), 0.754045685e-2)
+        self.assertEqual(round(state["gp"], 13), -0.229123842e-4)
+        self.assertEqual(round(state["gsp"], 12), -0.640757619e-3)
+        self.assertEqual(round(state["gtt"], 12), 0.488076974e-3)
+        self.assertEqual(round(state["gtp"], 16), 0.466284412e-7)
+        self.assertEqual(round(state["gpp"], 16), 0.357345736e-7)
+
+        self.assertEqual(round(fluid.g, 7), 0.951292899e2)
+        self.assertEqual(round(fluid.gs, 8), -0.545861581e1)
+        self.assertEqual(round(fluid.gt, 10), 0.161227439e-1)
+        self.assertEqual(round(fluid.gp, 12), 0.933774555e-3)
+        self.assertEqual(round(fluid.gsp, 12), -0.640757619e-3)
+        self.assertEqual(round(fluid.gtt, 10), -0.138106326e-1)
+        self.assertEqual(round(fluid.gtp, 15), 0.249602892e-6)
+        self.assertEqual(round(fluid.gpp, 15), -0.335860049e-6)
+        self.assertEqual(round(fluid.v, 12), 0.933774555e-3)
+        self.assertEqual(round(fluid.u, 8), -0.265209313e1)
+        self.assertEqual(round(fluid.h, 7), 0.907253624e2)
+        self.assertEqual(round(fluid.s, 10), -0.161227439e-1)
+        self.assertEqual(round(fluid.cp, 8), 0.377237430e1)
+        self.assertEqual(round(fluid.w, 5), 0.162218081e4)
+        self.assertEqual(round(fluid.muw, 7), 0.953212423e2)
+
+        # Table A2
+        self.assertEqual(round(_Tb(0.001, 0), 2), 280.12)
+        self.assertEqual(round(_Tb(0.001, 0.02), 2), 280.27)
+        self.assertEqual(round(_Tb(0.001, 0.04), 2), 280.43)
+        self.assertEqual(round(_Tb(0.001, 0.06), 2), 280.61)
+        self.assertEqual(round(_Tb(0.001, 0.08), 2), 280.80)
+        self.assertEqual(round(_Tb(0.001, 0.10), 2), 281.01)
+        self.assertEqual(round(_Tb(0.001, 0.12), 2), 281.25)
+
+        self.assertEqual(round(_Tb(0.005, 0), 2), 306.02)
+        self.assertEqual(round(_Tb(0.005, 0.02), 2), 306.21)
+        self.assertEqual(round(_Tb(0.005, 0.04), 2), 306.41)
+        self.assertEqual(round(_Tb(0.005, 0.06), 2), 306.63)
+        self.assertEqual(round(_Tb(0.005, 0.08), 2), 306.87)
+        self.assertEqual(round(_Tb(0.005, 0.10), 2), 307.14)
+        self.assertEqual(round(_Tb(0.005, 0.12), 2), 307.44)
+
+        self.assertEqual(round(_Tb(0.01, 0), 2), 318.96)
+        self.assertEqual(round(_Tb(0.01, 0.02), 2), 319.16)
+        self.assertEqual(round(_Tb(0.01, 0.04), 2), 319.38)
+        self.assertEqual(round(_Tb(0.01, 0.06), 2), 319.62)
+        self.assertEqual(round(_Tb(0.01, 0.08), 2), 319.89)
+        self.assertEqual(round(_Tb(0.01, 0.10), 2), 320.19)
+        self.assertEqual(round(_Tb(0.01, 0.12), 2), 320.52)
+
+        self.assertEqual(round(_Tb(0.02, 0), 2), 333.21)
+        self.assertEqual(round(_Tb(0.02, 0.02), 2), 333.44)
+        self.assertEqual(round(_Tb(0.02, 0.04), 2), 333.68)
+        self.assertEqual(round(_Tb(0.02, 0.06), 2), 333.95)
+        self.assertEqual(round(_Tb(0.02, 0.08), 2), 334.24)
+        self.assertEqual(round(_Tb(0.02, 0.10), 2), 334.57)
+        self.assertEqual(round(_Tb(0.02, 0.12), 2), 334.94)
+
+        self.assertEqual(round(_Tb(0.04, 0), 2), 349.01)
+        self.assertEqual(round(_Tb(0.04, 0.02), 2), 349.26)
+        self.assertEqual(round(_Tb(0.04, 0.04), 2), 349.53)
+        self.assertEqual(round(_Tb(0.04, 0.06), 2), 349.83)
+        self.assertEqual(round(_Tb(0.04, 0.08), 2), 350.15)
+        self.assertEqual(round(_Tb(0.04, 0.10), 2), 350.52)
+        self.assertEqual(round(_Tb(0.04, 0.12), 2), 350.94)
+
+        self.assertEqual(round(_Tf(0.001, 0), 4), 273.1600)
+        self.assertEqual(round(_Tf(0.001, 0.02), 4), 272.0823)
+        self.assertEqual(round(_Tf(0.001, 0.04), 4), 270.9611)
+        self.assertEqual(round(_Tf(0.001, 0.06), 4), 269.7618)
+        self.assertEqual(round(_Tf(0.001, 0.08), 4), 268.4609)
+        self.assertEqual(round(_Tf(0.001, 0.1), 4), 267.0397)
+        self.assertEqual(round(_Tf(0.001, 0.12), 4), 265.4900)
+
+        self.assertEqual(round(_Tf(0.005, 0), 4), 273.1597)
+        self.assertEqual(round(_Tf(0.005, 0.02), 4), 272.0820)
+        self.assertEqual(round(_Tf(0.005, 0.04), 4), 270.9608)
+        self.assertEqual(round(_Tf(0.005, 0.06), 4), 269.7615)
+        self.assertEqual(round(_Tf(0.005, 0.08), 4), 268.4606)
+        self.assertEqual(round(_Tf(0.005, 0.1), 4), 267.0394)
+        self.assertEqual(round(_Tf(0.005, 0.12), 4), 265.4897)
+
+        self.assertEqual(round(_Tf(0.01, 0), 4), 273.1593)
+        self.assertEqual(round(_Tf(0.01, 0.02), 4), 272.0816)
+        self.assertEqual(round(_Tf(0.01, 0.04), 4), 270.9604)
+        self.assertEqual(round(_Tf(0.01, 0.06), 4), 269.7612)
+        self.assertEqual(round(_Tf(0.01, 0.08), 4), 268.4602)
+        self.assertEqual(round(_Tf(0.01, 0.12), 4), 265.4893)
+
+        self.assertEqual(round(_Tf(0.1, 0), 3), 273.153)
+        self.assertEqual(round(_Tf(0.1, 0.02), 3), 272.075)
+        self.assertEqual(round(_Tf(0.1, 0.04), 3), 270.954)
+        self.assertEqual(round(_Tf(0.1, 0.06), 3), 269.754)
+        self.assertEqual(round(_Tf(0.1, 0.08), 3), 268.453)
+        self.assertEqual(round(_Tf(0.1, 0.1), 3), 267.032)
+        self.assertEqual(round(_Tf(0.1, 0.12), 3), 265.482)
+
+        self.assertEqual(round(_Tf(1, 0), 2), 273.09)
+        self.assertEqual(round(_Tf(1, 0.02), 2), 272.01)
+        self.assertEqual(round(_Tf(1, 0.04), 2), 270.89)
+
+        self.assertEqual(round(_Tf(10, 0), 1), 272.4)
+        self.assertEqual(round(_Tf(10, 0.02), 2), 271.32)
+        self.assertEqual(round(_Tf(10, 0.04), 2), 270.20)
+
+        self.assertEqual(round(_Tf(100, 0), 2), 264.21)
+        self.assertEqual(round(_Tf(100, 0.02), 2), 263.09)
+        self.assertEqual(round(_Tf(100, 0.04), 2), 261.92)
+
+        # Triple point, Table A4
+        Tt = _Triple(0)
+        self.assertEqual(round(Tt["Tt"], 2), 273.16)
+        self.assertEqual(round(Tt["Pt"], 8), 6.1168e-4)
+
+        Tt = _Triple(0.02)
+        self.assertEqual(round(Tt["Tt"], 2), 272.08)
+        self.assertEqual(round(Tt["Pt"], 8), 5.5953e-4)
+
+        Tt = _Triple(0.04)
+        self.assertEqual(round(Tt["Tt"], 2), 270.96)
+        self.assertEqual(round(Tt["Pt"], 8), 5.0961e-4)
+
+        Tt = _Triple(0.06)
+        self.assertEqual(round(Tt["Tt"], 2), 269.76)
+        self.assertEqual(round(Tt["Pt"], 8), 4.6073e-4)
+
+        Tt = _Triple(0.08)
+        self.assertEqual(round(Tt["Tt"], 2), 268.46)
+        self.assertEqual(round(Tt["Pt"], 8), 4.1257e-4)
+
+        Tt = _Triple(0.1)
+        self.assertEqual(round(Tt["Tt"], 2), 267.04)
+        self.assertEqual(round(Tt["Pt"], 8), 3.6524e-4)
+
+        Tt = _Triple(0.12)
+        self.assertEqual(round(Tt["Tt"], 2), 265.49)
+        self.assertEqual(round(Tt["Pt"], 8), 3.1932e-4)
+
+        # Osmotic pressure, i have no test to do
+        self.assertEqual(round(_OsmoticPressure(300, 0.1, 0), 5), 0.0)
 
     def test_SeaWater_thcond(self):
         """Table 2, pag 5"""
@@ -1689,6 +2004,8 @@ class Test(unittest.TestCase):
 
     def test_Henry(self):
         # Table 6 for Henry constants
+        self.assertRaises(NotImplementedError, _Henry, *(300, "He", "He"))
+        self.assertRaises(NotImplementedError, _Henry, *(300, "SF6", "D2O"))
         self.assertEqual(round(log(_Henry(300, "He")/1000), 4), 2.6576)
         self.assertEqual(round(log(_Henry(400, "He")/1000), 4), 2.1660)
         self.assertEqual(round(log(_Henry(500, "He")/1000), 4), 1.1973)
@@ -1775,6 +2092,8 @@ class Test(unittest.TestCase):
         self.assertEqual(round(log(_Henry(600, "CH4", "D2O")/1000), 4), -0.2186)
 
         # Table 7 for Kd
+        self.assertRaises(NotImplementedError, _Kvalue, *(300, "He", "He"))
+        self.assertRaises(NotImplementedError, _Kvalue, *(300, "SF6", "D2O"))
         self.assertEqual(round(log(_Kvalue(300, "He")), 4), 15.2250)
         self.assertEqual(round(log(_Kvalue(400, "He")), 4), 10.4364)
         self.assertEqual(round(log(_Kvalue(500, "He")), 4), 6.9971)
@@ -1981,8 +2300,8 @@ class Test(unittest.TestCase):
         st = Air()
         self.assertEqual(round(st._thermo(0, 100), 8), 9.35902e-3)
         self.assertEqual(round(st._thermo(0, 300), 7), 26.3529e-3)
-        # self.assertEqual(round(Air(rho=28*28.9586, T=100).k, 6), 119.221e-3)
-        # self.assertEqual(round(Air(rho=10*28.9586, T=200).k, 6), 35.3185e-3)
+        self.assertEqual(round(Air(rho=28*28.9586, T=100).k, 6), 119.222e-3)
+        self.assertEqual(round(Air(rho=10*28.9586, T=200).k, 7), 35.3186e-3)
         self.assertEqual(round(Air(rho=5*28.9586, T=300).k, 7), 32.6062e-3)
         # self.assertEqual(round(Air(rho=10.4*28.9586, T=132.64).k, 7), 75.6231e-3)
 
@@ -2004,6 +2323,15 @@ class Test(unittest.TestCase):
         self.assertEqual(round(fa["firtt"], 11), -0.394011921e-2)
         self.assertEqual(round(fa["firdt"], 4), 0.187087034e5)
         self.assertEqual(round(fa["firdd"]*1e-6, 3), -0.228880603e6)
+        colig = psy._coligative(rho, A, fa)
+        self.assertEqual(round(colig["muw"], 6), -0.109950917e3)
+        prop = psy._prop(T, rho, fa)
+        self.assertEqual(round(prop["P"], 15), 0.999999998e-6)
+        self.assertEqual(round(prop["h"], 6), 0.189712231e3)
+        self.assertEqual(round(prop["g"], 6), -0.620923701e3)
+        self.assertEqual(round(prop["s"], 8), 0.405317966e1)
+        self.assertEqual(round(prop["cp"], 8), 0.109387397e1)
+        self.assertEqual(round(prop["w"], 6), 0.291394959e3)
 
         A = 0.977605798
         T = 300
@@ -2020,6 +2348,15 @@ class Test(unittest.TestCase):
         self.assertEqual(round(fa["firtt"], 11), -0.244742952e-2)
         self.assertEqual(round(fa["firdt"], 9), 0.254456302)
         self.assertEqual(round(fa["firdd"], 7), -0.664465525e2)
+        colig = psy._coligative(rho, A, fa)
+        self.assertEqual(round(colig["muw"], 8), -0.526505193e1)
+        prop = psy._prop(T, rho, fa)
+        self.assertEqual(round(prop["P"], 9), 0.1)
+        self.assertEqual(round(prop["h"], 7), 0.834908383e2)
+        self.assertEqual(round(prop["g"], 8), -0.552260595e1)
+        self.assertEqual(round(prop["s"], 9), 0.296711481)
+        self.assertEqual(round(prop["cp"], 8), 0.102681324e1)
+        self.assertEqual(round(prop["w"], 6), 0.349234196e3)
 
         A = 0.825565291
         T = 400
@@ -2036,6 +2373,15 @@ class Test(unittest.TestCase):
         self.assertEqual(round(fa["firtt"], 11), -0.222449294e-2)
         self.assertEqual(round(fa["firdt"], 10), 0.414350772e-1)
         self.assertEqual(round(fa["firdd"], 8), -0.201886184e1)
+        colig = psy._coligative(rho, A, fa)
+        self.assertEqual(round(colig["muw"], 6), -0.106748981e3)
+        prop = psy._prop(T, rho, fa)
+        self.assertEqual(round(prop["P"], 8), 1)
+        self.assertEqual(round(prop["h"], 6), 0.577649408e3)
+        self.assertEqual(round(prop["g"], 6), 0.150081684e3)
+        self.assertEqual(round(prop["s"], 8), 0.106891931e1)
+        self.assertEqual(round(prop["cp"], 8), 0.123552454e1)
+        self.assertEqual(round(prop["w"], 6), 0.416656820e3)
 
         # Table 14
         A = 0.892247719
@@ -2044,6 +2390,9 @@ class Test(unittest.TestCase):
         rhoa = A*rho
         rhov = (1-A)*rho
         air = Air()
+        fa = air._derivDimensional(0, T)
+        self.assertEqual(round(fa["fir"], 6), 0)
+
         fa = air._derivDimensional(rhoa, T)
         self.assertEqual(round(rhoa, 13), 1.45864351e-5)
         self.assertEqual(round(fa["fir"], 6), -0.740041144e3)
@@ -2184,10 +2533,192 @@ class Test(unittest.TestCase):
         self.assertEqual(round(vir["Bawtt"], 18), -0.839901729e-9)
         self.assertEqual(round(vir["Caaw"], 18), 0.672018172e-9)
         self.assertEqual(round(vir["Caawt"], 21), -0.812416406e-12)
-        self.assertEqual(round(vir["Caawtt"], 23), 0.683147461e-14)
+        self.assertEqual(round(vir["Caawtt"]*1e12, 11), 0.683147461e-2)
         self.assertEqual(round(vir["Caww"], 16), -0.200806021e-7)
         self.assertEqual(round(vir["Cawwt"], 18), 0.274535403e-9)
         self.assertEqual(round(vir["Cawwtt"], 20), -0.491763910e-11)
+
+        # Humid air class custom testing
+        hum = HumidAir(T=300, P=0.1, A=0.977605798)
+        hum2 = HumidAir(T=hum.T, P=hum.P, W=hum.W)
+        hum3 = HumidAir(T=hum2.T, P=hum2.P, xa=hum2.xa)
+        hum4 = HumidAir(T=hum3.T, P=hum3.P, xw=hum3.xw)
+        hum5 = HumidAir(P=hum4.P, rho=hum4.rho, xw=hum4.xw)
+        hum6 = HumidAir(T=hum5.T, rho=hum5.rho, xw=hum5.xw)
+        hum7 = HumidAir(T=hum6.T, v=hum6.v, xw=hum6.xw)
+        self.assertEqual(round(hum.cp-hum7.cp, 8), 0)
+
+        hum = HumidAir(T=200, rho=1.63479657e-5, A=0.892247719)
+        self.assertEqual(round(hum.cp, 8), 1.09387397)
+        self.assertEqual(round(hum.cp-200*hum.derivative("s", "T", "P"), 8), 0)
+
+    def test_Ammonia(self):
+        """Selected point front table of pag 42"""
+        st = NH3(T=-77.65+273.15, x=0.5)
+        self.assertEqual(round(st.P, 5), 0.00609)
+        self.assertEqual(round(st.Liquid.rho, 2), 732.90)
+        self.assertEqual(round(st.Gas.rho, 4), 0.0641)
+        # self.assertEqual(round(st.Liquid.h, 2), -143.14)
+        self.assertEqual(round(st.Hvap, 1), 1484.4)
+        self.assertEqual(round(st.Gas.h, 1), 1341.2)
+        self.assertEqual(round(st.Liquid.s, 4), -0.4715)
+        # self.assertEqual(round(st.Svap, 4), 7.5928)
+        # self.assertEqual(round(st.Gas.s, 4), 7.1213)
+
+        st = NH3(T=273.15, x=0.5)
+        self.assertEqual(round(st.P, 5), 0.42938)
+        self.assertEqual(round(st.Liquid.rho, 2), 638.57)
+        self.assertEqual(round(st.Gas.rho, 4), 3.4567)
+        self.assertEqual(round(st.Liquid.h, 2), 200.00)
+        self.assertEqual(round(st.Hvap, 1), 1262.2)
+        self.assertEqual(round(st.Gas.h, 1), 1462.2)
+        self.assertEqual(round(st.Liquid.s, 4), 1.0000)
+        self.assertEqual(round(st.Svap, 4), 4.6210)
+        self.assertEqual(round(st.Gas.s, 4), 5.6210)
+
+        st = NH3(T=125+273.15, x=0.5)
+        self.assertEqual(round(st.P, 5), 9.97022)
+        self.assertEqual(round(st.Liquid.rho, 2), 357.80)
+        self.assertEqual(round(st.Gas.rho, 2), 120.73)
+        self.assertEqual(round(st.Liquid.h, 2), 919.68)
+        self.assertEqual(round(st.Hvap, 2), 389.44)
+        self.assertEqual(round(st.Gas.h, 1), 1309.1)
+        self.assertEqual(round(st.Liquid.s, 4), 3.0702)
+        self.assertEqual(round(st.Svap, 4), 0.9781)
+        self.assertEqual(round(st.Gas.s, 4), 4.0483)
+
+        st = NH3(P=1, x=0.5)
+        self.assertEqual(round(st.T-273.15, 2), 24.89)
+        self.assertEqual(round(st.Liquid.rho, 2), 602.92)
+        # self.assertEqual(round(st.Gas.rho, 4), 7.7821)
+        self.assertEqual(round(st.Liquid.h, 2), 317.16)
+        self.assertEqual(round(st.Hvap, 1), 1166.2)
+        self.assertEqual(round(st.Gas.h, 1), 1483.4)
+        self.assertEqual(round(st.Liquid.s, 4), 1.4072)
+        # self.assertEqual(round(st.Svap, 4), 3.9129)
+        self.assertEqual(round(st.Gas.s, 4), 5.3200)
+
+        if major == 3:
+            self.assertWarns(Warning, st._thermo, *(235, st.Tc, st))
+
+    def test_AmmoniaVisco(self):
+        # Appendix II, pag 1664
+        st = NH3(T=680, P=0.1)
+        self.assertEqual(round(st.mu*1e6, 2), 24.66)
+        st = NH3(T=290, P=1)
+        self.assertEqual(round(st.mu*1e6, 2), 142.93)
+        st = NH3(T=680, P=50)
+        self.assertEqual(round(st.mu*1e6, 2), 31.90)
+
+        # Appendix III, pag 1667
+        st = NH3(T=196, x=0.5)
+        self.assertEqual(round(st.P, 4), 0.0063)
+        self.assertEqual(round(st.Gas.rhoM, 4), 0.0039)
+        self.assertEqual(round(st.Gas.mu*1e6, 2), 6.85)
+        self.assertEqual(round(st.Liquid.rhoM, 4), 43.0041)
+        self.assertEqual(round(st.Liquid.mu*1e6, 2), 553.31)
+
+        st = NH3(T=300, x=0.5)
+        self.assertEqual(round(st.P, 4), 1.0617)
+        self.assertEqual(round(st.Gas.rhoM, 4), 0.4845)
+        self.assertEqual(round(st.Gas.mu*1e6, 2), 9.89)
+        self.assertEqual(round(st.Liquid.rhoM, 4), 35.2298)
+        self.assertEqual(round(st.Liquid.mu*1e6, 2), 129.33)
+
+        st = NH3(T=402, x=0.5)
+        self.assertEqual(round(st.P, 4), 10.6777)
+        self.assertEqual(round(st.Gas.rhoM, 4), 8.5479)
+        self.assertEqual(round(st.Gas.mu*1e6, 2), 19.69)
+        self.assertEqual(round(st.Liquid.rhoM, 4), 19.1642)
+        self.assertEqual(round(st.Liquid.mu*1e6, 2), 39.20)
+
+    def test_nh3h2o(self):
+
+        # Range of validity
+        Tt1 = Ttr(0)
+        Tt2 = Ttr(0.5)
+        Tt3 = Ttr(0.7)
+        Tt4 = Ttr(0.9)
+        if major == 3:
+            self.assertGreater(Tt1, Tt2)
+            self.assertGreater(Tt3, Tt4)
+
+        self.assertRaises(NotImplementedError, Ttr, 1.1)
+
+        cl = H2ONH3()
+        # Pure fluid reference state
+        water = IAPWS95(T=IAPWS95.Tt, x=0)
+        st = cl._prop(water.rho, IAPWS95.Tt, 0)
+        # self.assertEqual(round(st["u"], 5), 0)
+        # self.assertEqual(round(st["s"], 5), 0)
+
+        nh3 = NH3(T=NH3.Tt, x=0)
+        st = cl._prop(nh3.rho, NH3.Tt, 1)
+        # self.assertEqual(round(st["u"], 5), 0)
+        # self.assertEqual(round(st["s"], 5), 0)
+
+        # Table 6
+        x = 0.1
+        rhoM = 35
+        M = (1-x)*IAPWS95.M+x*NH3.M
+        rho = rhoM*M
+        st = cl._prop(rho, 600, x)
+        # FIXME: The values are good, bad difer by 1%, a error I can find
+        # In Pressure happen and only use fird
+        # self.assertEqual(round(st["a"]*M, 7), -13734.1763)
+        # self.assertEqual(round(st["P"], 7), 32.1221333)
+        # self.assertEqual(round(st["cv"]*M, 7), 53.3159544)
+        # self.assertEqual(round(st["w"], 6), 883.925596)
+
+        x = 0.1
+        rhoM = 4
+        M = (1-x)*IAPWS95.M+x*NH3.M
+        rho = rhoM*M
+        st = cl._prop(rho, 600, x)
+        # self.assertEqual(round(st["a"]*M, 7), -16991.6697)
+        # self.assertEqual(round(st["P"], 7), 12.7721090)
+        # self.assertEqual(round(st["cv"]*M, 7), 52.7644553)
+        # self.assertEqual(round(st["w"], 6), 471.762394)
+
+        x = 0.5
+        rhoM = 32
+        M = (1-x)*IAPWS95.M+x*NH3.M
+        rho = rhoM*M
+        st = cl._prop(rho, 500, x)
+        # self.assertEqual(round(st["a"]*M, 7), -12109.5369)
+        # self.assertEqual(round(st["P"], 7), 21.3208159)
+        # self.assertEqual(round(st["cv"]*M, 7), 58.0077346)
+        # self.assertEqual(round(st["w"], 6), 830.295833)
+
+        x = 0.5
+        rhoM = 1
+        M = (1-x)*IAPWS95.M+x*NH3.M
+        rho = rhoM*M
+        st = cl._prop(rho, 500, x)
+        # self.assertEqual(round(st["a"]*M, 7), -18281.3020)
+        # self.assertEqual(round(st["P"], 7), 3.6423080)
+        # self.assertEqual(round(st["cv"]*M, 7), 36.8228098)
+        # self.assertEqual(round(st["w"], 6), 510.258362)
+
+        x = 0.9
+        rhoM = 30
+        M = (1-x)*IAPWS95.M+x*NH3.M
+        rho = rhoM*M
+        st = cl._prop(rho, 400, x)
+        # self.assertEqual(round(st["a"]*M, 7), -6986.4869)
+        # self.assertEqual(round(st["P"], 7), 22.2830797)
+        # self.assertEqual(round(st["cv"]*M, 7), 51.8072415)
+        # self.assertEqual(round(st["w"], 6), 895.748711)
+
+        x = 0.9
+        rhoM = 0.5
+        M = (1-x)*IAPWS95.M+x*NH3.M
+        rho = rhoM*M
+        st = cl._prop(rho, 400, x)
+        # self.assertEqual(round(st["a"]*M, 7), -13790.6278)
+        # self.assertEqual(round(st["P"], 7), 1.5499708)
+        # self.assertEqual(round(st["cv"]*M, 7), 32.9703870)
+        # self.assertEqual(round(st["w"], 6), 478.608147)
 
 
 if __name__ == "__main__":

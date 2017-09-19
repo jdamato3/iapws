@@ -6,9 +6,13 @@ IAPWS standard for Seawater IAPWS08
 
 from __future__ import division
 from math import exp, log
+import warnings
+
+from scipy.optimize import fsolve
 
 from .iapws95 import IAPWS95
-from ._iapws import _ThCond, Tc, Pc, rhoc
+from .iapws97 import IAPWS97, _Region1, _Region2
+from ._iapws import _ThCond, Tc, Pc, rhoc, _Ice
 from ._utils import deriv_G
 
 
@@ -38,6 +42,8 @@ class SeaWater(object):
 
     fast : Boolean, default False
         Use the Supplementary release SR7-09 to speed up the calculation
+    IF97 : Boolean, default False
+        Use the Advisory Note No. 5 with industrial formulation
 
     Returns
     -------
@@ -57,6 +63,8 @@ class SeaWater(object):
         Specific Helmholtz free energy [kJ/kg]
     cp : float
         Specific isobaric heat capacity [kJ/kg·K]
+    cv : float
+        Specific isochoric heat capacity [kJ/kg·K]
     gt : float
         Derivative Gibbs energy with temperature [kJ/kg·K]
     gp : float
@@ -82,6 +90,8 @@ class SeaWater(object):
     w : float
         Sound Speed [m/s]
 
+    m : float
+        Molality of seawater [mol/kg]
     mu : float
         Relative chemical potential [kJ/kg]
     muw : float
@@ -93,17 +103,30 @@ class SeaWater(object):
     haline : float
         Haline contraction coefficient [kg/kg]
 
+    Raises
+    ------
+    Warning : If input isn't in limit
+        * 261 ≤ T ≤ 353
+        * 0 < P ≤ 100
+        * 0 ≤ S ≤ 0.12
+
     References
     ----------
     IAPWS, Release on the IAPWS Formulation 2008 for the Thermodynamic
     Properties of Seawater, http://www.iapws.org/relguide/Seawater.html
+
     IAPWS, Supplementary Release on a Computationally Efficient Thermodynamic
     Formulation for Liquid Water for Oceanographic Use,
     http://www.iapws.org/relguide/OceanLiquid.html
+
     IAPWS, Guideline on the Thermal Conductivity of Seawater,
     http://www.iapws.org/relguide/Seawater-ThCond.html
+
     IAPWS, Revised Advisory Note No. 3: Thermodynamic Derivatives from IAPWS
     Formulations, http://www.iapws.org/relguide/Advise3.pdf
+
+    IAPWS,  Advisory Note No. 5: Industrial Calculation of the Thermodynamic
+    Properties of Seawater, http://www.iapws.org/relguide/Advise5.html
 
     Examples
     --------
@@ -118,7 +141,8 @@ class SeaWater(object):
     kwargs = {"T": 0.0,
               "P": 0.0,
               "S": None,
-              "fast": False}
+              "fast": False,
+              "IF97": False}
     status = 0
     msg = "Undefined"
 
@@ -143,15 +167,17 @@ class SeaWater(object):
         P = self.kwargs["P"]
         S = self.kwargs["S"]
 
-        m = S/(1-S)/Ms
+        self.m = S/(1-S)/Ms
         if self.kwargs["fast"] and T <= 313.15:
             pw = self._waterSupp(T, P)
+        elif self.kwargs["IF97"]:
+            pw = self._waterIF97(T, P)
         else:
             pw = self._water(T, P)
         ps = self._saline(T, P, S)
 
         prop = {}
-        for key in pw:
+        for key in ps:
             prop[key] = pw[key]+ps[key]
             self.__setattr__(key, prop[key])
 
@@ -161,19 +187,23 @@ class SeaWater(object):
         self.v = prop["gp"]
         self.s = -prop["gt"]
         self.cp = -T*prop["gtt"]
+        self.cv = T*(prop["gtp"]**2/prop["gpp"]-prop["gtt"])
         self.h = prop["g"]-T*prop["gt"]
         self.u = prop["g"]-T*prop["gt"]-P*1000*prop["gp"]
         self.a = prop["g"]-P*1000*prop["gp"]
         self.alfav = prop["gtp"]/prop["gp"]
         self.betas = -prop["gtp"]/prop["gtt"]
         self.xkappa = -prop["gpp"]/prop["gp"]
-        self.ks = (prop["gtp"]**2-prop["gt"]*prop["gpp"])/prop["gp"] / \
+        self.ks = (prop["gtp"]**2-prop["gtt"]*prop["gpp"])/prop["gp"] / \
             prop["gtt"]
         self.w = prop["gp"]*(prop["gtt"]*1000/(prop["gtp"]**2 -
                              prop["gtt"]*1000*prop["gpp"]*1e-6))**0.5
 
-        try:
+        if "thcond" in pw:
+            kw = pw["thcond"]
+        else:
             kw = _ThCond(1/pw["gp"], T)
+        try:
             self.k = _ThCond_SeaWater(T, P, S)+kw
         except NotImplementedError:
             self.k = None
@@ -182,7 +212,7 @@ class SeaWater(object):
             self.mu = prop["gs"]
             self.muw = prop["g"]-S*prop["gs"]
             self.mus = prop["g"]+(1-S)*prop["gs"]
-            self.osm = -(ps["g"]-S*prop["gs"])/m/Rm/T
+            self.osm = -(ps["g"]-S*prop["gs"])/self.m/Rm/T
             self.haline = -prop["gsp"]/prop["gp"]
         else:
             self.mu = None
@@ -207,6 +237,22 @@ class SeaWater(object):
         prop["gtt"] = -water.cp/T
         prop["gtp"] = water.betas*water.cp/T
         prop["gpp"] = -1e6/(water.rho*water.w)**2-water.betas**2*1e3*water.cp/T
+        prop["gs"] = 0
+        prop["gsp"] = 0
+        prop["thcond"] = water.k
+        return prop
+
+    @classmethod
+    def _waterIF97(cls, T, P):
+        water = IAPWS97(P=P, T=T)
+        betas = water.derivative("T", "P", "s", water)
+        prop = {}
+        prop["g"] = water.h-T*water.s
+        prop["gt"] = -water.s
+        prop["gp"] = 1./water.rho
+        prop["gtt"] = -water.cp/T
+        prop["gtp"] = betas*water.cp/T
+        prop["gpp"] = -1e6/(water.rho*water.w)**2-betas**2*1e3*water.cp/T
         prop["gs"] = 0
         prop["gsp"] = 0
         return prop
@@ -265,6 +311,11 @@ class SeaWater(object):
     @classmethod
     def _saline(cls, T, P, S):
         """Eq 4"""
+
+        # Check input in range of validity
+        if T <= 261 or T > 353 or P <= 0 or P > 100 or S < 0 or S > 0.12:
+            warnings.warn("Incoming out of bound")
+
         S_ = 0.03516504*40/35
         X = (S/S_)**0.5
         tau = (T-273.15)/40
@@ -338,6 +389,151 @@ class SeaWater(object):
         prop["gs"] = gs/S_/2*1e-3
         prop["gsp"] = gsp/S_/2/100*1e-6
         return prop
+
+
+def _Tb(P, S):
+    """Procedure to calculate the boiling temperature of seawater
+
+    Parameters
+    ----------
+    P : float
+        Pressure [MPa]
+    S : float
+        Salinity [kg/kg]
+
+    Returns
+    -------
+    Tb : float
+        Boiling temperature [K]
+
+    References
+    ----------
+    IAPWS,  Advisory Note No. 5: Industrial Calculation of the Thermodynamic
+    Properties of Seawater, http://www.iapws.org/relguide/Advise5.html, Eq 7
+    """
+    def f(T):
+        pw = _Region1(T, P)
+        gw = pw["h"]-T*pw["s"]
+
+        pv = _Region2(T, P)
+        gv = pv["h"]-T*pv["s"]
+
+        ps = SeaWater._saline(T, P, S)
+        return -ps["g"]+S*ps["gs"]-gw+gv
+
+    Tb = fsolve(f, 300)[0]
+    return Tb
+
+
+def _Tf(P, S):
+    """Procedure to calculate the freezing temperature of seawater
+
+    Parameters
+    ----------
+    P : float
+        Pressure [MPa]
+    S : float
+        Salinity [kg/kg]
+
+    Returns
+    -------
+    Tf : float
+        Freezing temperature [K]
+
+    References
+    ----------
+    IAPWS,  Advisory Note No. 5: Industrial Calculation of the Thermodynamic
+    Properties of Seawater, http://www.iapws.org/relguide/Advise5.html, Eq 12
+    """
+    def f(T):
+        T = float(T)
+        pw = _Region1(T, P)
+        gw = pw["h"]-T*pw["s"]
+
+        gih = _Ice(T, P)["g"]
+
+        ps = SeaWater._saline(T, P, S)
+        return -ps["g"]+S*ps["gs"]-gw+gih
+
+    Tf = fsolve(f, 300)[0]
+    return Tf
+
+
+def _Triple(S):
+    """Procedure to calculate the triple point pressure and temperature for
+    seawater
+
+    Parameters
+    ----------
+    S : float
+        Salinity [kg/kg]
+
+    Returns
+    -------
+    Tt : float
+        Triple point temperature [K]
+    Pt: float
+        Triple point pressure [MPa]
+
+    References
+    ----------
+    IAPWS,  Advisory Note No. 5: Industrial Calculation of the Thermodynamic
+    Properties of Seawater, http://www.iapws.org/relguide/Advise5.html, Eq 7
+    """
+    def f(parr):
+        T, P = parr
+        pw = _Region1(T, P)
+        gw = pw["h"]-T*pw["s"]
+
+        pv = _Region2(T, P)
+        gv = pv["h"]-T*pv["s"]
+
+        gih = _Ice(T, P)["g"]
+        ps = SeaWater._saline(T, P, S)
+
+        return -ps["g"]+S*ps["gs"]-gw+gih, -ps["g"]+S*ps["gs"]-gw+gv
+
+    Tt, Pt = fsolve(f, [273, 6e-4])
+
+    prop = {}
+    prop["Tt"] = Tt
+    prop["Pt"] = Pt
+    return prop
+
+
+def _OsmoticPressure(T, P, S):
+    """Procedure to calculate the osmotic pressure of seawater
+
+    Parameters
+    ----------
+    T : float
+        Tmperature [K]
+    P : float
+        Pressure [MPa]
+    S : float
+        Salinity [kg/kg]
+
+    Returns
+    -------
+    Posm : float
+        Osmotic pressure [MPa]
+
+    References
+    ----------
+    IAPWS,  Advisory Note No. 5: Industrial Calculation of the Thermodynamic
+    Properties of Seawater, http://www.iapws.org/relguide/Advise5.html, Eq 15
+    """
+    pw = _Region1(T, P)
+    gw = pw["h"]-T*pw["s"]
+
+    def f(Posm):
+        pw2 = _Region1(T, P+Posm)
+        gw2 = pw2["h"]-T*pw2["s"]
+        ps = SeaWater._saline(T, P+Posm, S)
+        return -ps["g"]+S*ps["gs"]-gw+gw2
+
+    Posm = fsolve(f, 0)[0]
+    return Posm
 
 
 def _ThCond_SeaWater(T, P, S):
@@ -460,10 +656,9 @@ def _critNaCl(x):
 
     Returns
     -------
-    prop : dictionary with critical Properties
-        Tc: critical temperature [K]
-        Pc: critical pressure [MPa]
-        rhoc: critical density [kg/m³]
+    Tc: critical temperature [K]
+    Pc: critical pressure [MPa]
+    rhoc: critical density [kg/m³]
 
     Raises
     ------

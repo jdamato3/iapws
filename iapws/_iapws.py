@@ -10,9 +10,12 @@ from cmath import log as log_c
 from math import log, exp, tan, atan, acos, sin, pi, log10
 import warnings
 
+from scipy.optimize import minimize
+
+from ._utils import deriv_H
+
 
 # Constants
-Rm = 8.31451      # kJ/kmol·K
 M = 18.015268     # g/mol
 R = 0.461526      # kJ/kg·K
 
@@ -95,7 +98,7 @@ def _Ice(T, P):
     # Check input in range of validity
     if T > 273.16:
         # No Ice Ih stable
-        raise NotImplementedError("Incoming out of bound")
+        warnings.warn("Metastable ice")
     elif P > 208.566:
         # Ice Ih limit upper pressure
         raise NotImplementedError("Incoming out of bound")
@@ -103,12 +106,12 @@ def _Ice(T, P):
         Psub = _Sublimation_Pressure(T)
         if Psub > P:
             # Zone Gas
-            raise NotImplementedError("Incoming out of bound")
+            warnings.warn("Metastable ice in vapor region")
     elif 251.165 < T:
         Pmel = _Melting_Pressure(T)
         if Pmel < P:
             # Zone Liquid
-            raise NotImplementedError("Incoming out of bound")
+            warnings.warn("Metastable ice in liquid region")
 
     Tr = T/Tt
     Pr = P/Pt
@@ -180,7 +183,7 @@ def _Ice(T, P):
     return propiedades
 
 
-# IAPWS-08 for Liquid wagter at 0.1 MPa
+# IAPWS-08 for Liquid water at 0.1 MPa
 def _Liquid(T, P=0.1):
     """Supplementary release on properties of liquid water at 0.1 MPa
 
@@ -358,6 +361,181 @@ def _Liquid(T, P=0.1):
     return propiedades
 
 
+# IAPWS-15 for supercooled liquid water
+def _Supercooled(T, P):
+    """Guideline on thermodynamic properties of supercooled water
+
+    Parameters
+    ----------
+    T : float
+        Temperature [K]
+    P : float
+        Pressure [MPa]
+
+    Returns
+    -------
+    prop : dict
+        Dict with calculated properties of water. The available properties are:
+
+            * L: Ordering field [-]
+            * x: Mole fraction of low-density structure [-]
+            * rho: Density [kg/m³]
+            * s: Specific entropy [kJ/kgK]
+            * h: Specific enthalpy [kJ/kg]
+            * u: Specific internal energy [kJ/kg]
+            * a: Specific Helmholtz energy [kJ/kg]
+            * g: Specific Gibbs energy [kJ/kg]
+            * alfap: Thermal expansion coefficient [1/K]
+            * xkappa : Isothermal compressibility [1/MPa]
+            * cp: Specific isobaric heat capacity [kJ/kgK]
+            * cv: Specific isochoric heat capacity [kJ/kgK]
+            * w: Speed of sound [m/s²]
+
+    Raises
+    ------
+    NotImplementedError : If input isn't in limit
+        * Tm ≤ T ≤ 300
+        * 0 < P ≤ 1000
+
+    The minimum temperature in range of validity is the melting temperature, it
+    depend of pressure
+
+    Examples
+    --------
+    >>> liq = _Supercooled(235.15, 0.101325)
+    >>> liq["rho"], liq["cp"], liq["w"]
+    968.09999 5.997563 1134.5855
+
+    References
+    ----------
+    IAPWS, Guideline on Thermodynamic Properties of Supercooled Water,
+    http://iapws.org/relguide/Supercooled.html
+    """
+
+    # Check input in range of validity
+    if P < 198.9:
+        Tita = T/235.15
+        Ph = 0.1+228.27*(1-Tita**6.243)+15.724*(1-Tita**79.81)
+        if P < Ph or T > 300:
+            raise NotImplementedError("Incoming out of bound")
+    else:
+        Th = 172.82+0.03718*P+3.403e-5*P**2-1.573e-8*P**3
+        if T < Th or T > 300 or P > 1000:
+            raise NotImplementedError("Incoming out of bound")
+
+    # Parameters, Table 1
+    Tll = 228.2
+    rho0 = 1081.6482
+    R = 0.461523087
+    pi0 = 300e3/rho0/R/Tll
+    omega0 = 0.5212269
+    L0 = 0.76317954
+    k0 = 0.072158686
+    k1 = -0.31569232
+    k2 = 5.2992608
+
+    # Reducing parameters, Eq 2
+    tau = T/Tll-1
+    p = P*1000/rho0/R/Tll
+    tau_ = tau+1
+    p_ = p+pi0
+
+    # Eq 3
+    ci = [-8.1570681381655, 1.2875032, 7.0901673598012, -3.2779161e-2,
+          7.3703949e-1, -2.1628622e-1, -5.1782479, 4.2293517e-4, 2.3592109e-2,
+          4.3773754, -2.9967770e-3, -9.6558018e-1, 3.7595286, 1.2632441,
+          2.8542697e-1, -8.5994947e-1, -3.2916153e-1, 9.0019616e-2,
+          8.1149726e-2, -3.2788213]
+    ai = [0, 0, 1, -0.2555, 1.5762, 1.6400, 3.6385, -0.3828, 1.6219, 4.3287,
+          3.4763, 5.1556, -0.3593, 5.0361, 2.9786, 6.2373, 4.0460, 5.3558,
+          9.0157, 1.2194]
+    bi = [0, 1, 0, 2.1051, 1.1422, 0.9510, 0, 3.6402, 2.0760, -0.0016, 2.2769,
+          0.0008, 0.3706, -0.3975, 2.9730, -0.3180, 2.9805, 2.9265, 0.4456,
+          0.1298]
+    di = [0, 0, 0, -0.0016, 0.6894, 0.0130, 0.0002, 0.0435, 0.0500, 0.0004,
+          0.0528, 0.0147, 0.8584, 0.9924, 1.0041, 1.0961, 1.0228, 1.0303,
+          1.6180, 0.5213]
+    phir = phirt = phirp = phirtt = phirtp = phirpp = 0
+    for c, a, b, d in zip(ci, ai, bi, di):
+        phir += c*tau_**a*p_**b*exp(-d*p_)
+        phirt += c*a*tau_**(a-1)*p_**b*exp(-d*p_)
+        phirp += c*tau_**a*p_**(b-1)*(b-d*p_)*exp(-d*p_)
+        phirtt += c*a*(a-1)*tau_**(a-2)*p_**b*exp(-d*p_)
+        phirtp += c*a*tau_**(a-1)*p_**(b-1)*(b-d*p_)*exp(-d*p_)
+        phirpp += c*tau_**a*p_**(b-2)*((d*p_-b)**2-b)*exp(-d*p_)
+
+    # Eq 5
+    K1 = ((1+k0*k2+k1*(p-k2*tau))**2-4*k0*k1*k2*(p-k2*tau))**0.5
+    K2 = (1+k2**2)**0.5
+
+    # Eq 6
+    omega = 2+omega0*p
+
+    # Eq 4
+    L = L0*K2/2/k1/k2*(1+k0*k2+k1*(p+k2*tau)-K1)
+
+    # Define interval of solution, Table 4
+    if omega < 10/9*(log(19)-L):
+        xmin = 0.049
+        xmax = 0.5
+    elif 10/9*(log(19)-L) <= omega < 50/49*(log(99)-L):
+        xmin = 0.0099
+        xmax = 0.051
+    else:
+        xmin = 0.99*exp(-50/49*L-omega)
+        xmax = min(1.1*exp(-L-omega), 0.0101)
+
+    def f(x):
+        return abs(L+log(x/(1-x))+omega*(1-2*x))
+
+    x = minimize(f, ((xmin+xmax)/2,), bounds=((xmin, xmax),))["x"][0]
+
+    # Eq 12
+    fi = 2*x-1
+    Xi = 1/(2/(1-fi**2)-omega)
+
+    # Derivatives, Table 3
+    Lt = L0*K2/2*(1+(1-k0*k2+k1*(p-k2*tau))/K1)
+    Lp = L0*K2*(K1+k0*k2-k1*p+k1*k2*tau-1)/2/k2/K1
+    Ltt = -2*L0*K2*k0*k1*k2**2/K1**3
+    Ltp = 2*L0*K2*k0*k1*k2/K1**3
+    Lpp = -2*L0*K2*k0*k1/K1**3
+
+    prop = {}
+    prop["L"] = L
+    prop["x"] = x
+
+    # Eq 13
+    prop["rho"] = rho0/((tau+1)/2*(omega0/2*(1-fi**2)+Lp*(fi+1))+phirp)
+
+    # Eq 1
+    prop["g"] = phir+(tau+1)*(x*L+x*log(x)+(1-x)*log(1-x)+omega*x*(1-x))
+
+    # Eq 14
+    prop["s"] = -R*((tau+1)/2*Lt*(fi+1) +
+                    (x*L+x*log(x)+(1-x)*log(1-x)+omega*x*(1-x))+phirt)
+
+    # Basic derived state properties
+    prop["h"] = prop["g"]+T*prop["s"]
+    prop["u"] = prop["h"]+P/prop["rho"]
+    prop["a"] = prop["u"]-T*prop["s"]
+
+    # Eq 15
+    prop["xkappa"] = prop["rho"]/rho0**2/R*1000/Tll*(
+        (tau+1)/2*(Xi*(Lp-omega0*fi)**2-(fi+1)*Lpp)-phirpp)
+    prop["alfap"] = prop["rho"]/rho0/Tll*(
+        Ltp/2*(tau+1)*(fi+1) + (omega0*(1-fi**2)/2+Lp*(fi+1))/2 -
+        (tau+1)*Lt/2*Xi*(Lp-omega0*fi) + phirtp)
+    prop["cp"] = -R*(tau+1)*(Lt*(fi+1)+(tau+1)/2*(Ltt*(fi+1)-Lt**2*Xi)+phirtt)
+
+    # Eq 16
+    prop["cv"] = prop["cp"]-T*prop["alfap"]**2/prop["rho"]/prop["xkappa"]*1e3
+
+    # Eq 17
+    prop["w"] = (prop["rho"]*prop["xkappa"]*1e-6*prop["cv"]/prop["cp"])**-0.5
+    return prop
+
+
 def _Sublimation_Pressure(T):
     """Sublimation Pressure correlation
 
@@ -509,46 +687,59 @@ def _Viscosity(rho, T, fase=None, drho=None):
     Tr = T/Tc
     Dr = rho/rhoc
 
-    no = [1.67752, 2.20462, 0.6366564, -0.241605]
-    suma = 0
-    for i in range(4):
-        suma += no[i]/Tr**i
-    fi0 = 100*Tr**0.5/suma
+    # Eq 11
+    H = [1.67752, 2.20462, 0.6366564, -0.241605]
+    mu0 = 100*Tr**0.5/sum([Hi/Tr**i for i, Hi in enumerate(H)])
 
-    I = [0, 0, 0, 0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 4, 4, 5, 6, 6]
-    J = [0, 1, 2, 3, 0, 1, 2, 3, 5, 0, 1, 2, 3, 4, 0, 1, 0, 3, 4, 3, 5]
-    nr = [0.520094, 0.850895e-1, -0.108374e1, -0.289555, 0.222531, 0.999115,
-          0.188797e1, 0.126613e1, 0.120573, -0.281378, -0.906851, -0.772479,
-          -0.489837, -0.257040, 0.161913, 0.257399, -0.325372e-1, 0.698452e-1,
-          0.872102e-2, -0.435673e-2, -0.593264e-3]
-    suma = 0
-    for i in range(21):
-        suma += nr[i]*(Dr-1)**I[i]*(1/Tr-1)**J[i]
-    fi1 = exp(Dr*suma)
+    # Eq 12
+    I = [0, 1, 2, 3, 0, 1, 2, 3, 5, 0, 1, 2, 3, 4, 0, 1, 0, 3, 4, 3, 5]
+    J = [0, 0, 0, 0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 4, 4, 5, 6, 6]
+    Hij = [0.520094, 0.850895e-1, -0.108374e1, -0.289555, 0.222531, 0.999115,
+           0.188797e1, 0.126613e1, 0.120573, -0.281378, -0.906851, -0.772479,
+           -0.489837, -0.257040, 0.161913, 0.257399, -0.325372e-1, 0.698452e-1,
+           0.872102e-2, -0.435673e-2, -0.593264e-3]
+    mu1 = exp(Dr*sum([(1/Tr-1)**i*H*(Dr-1)**j for i, j, H in zip(I, J, Hij)]))
+
+    # Critical enhancement
     if fase and drho:
         qc = 1/1.9
         qd = 1/1.1
 
+        # Eq 21
         DeltaX = Pc*Dr**2*(fase.drhodP_T/rho-drho/rho*1.5/Tr)
         if DeltaX < 0:
             DeltaX = 0
+
+        # Eq 20
         X = 0.13*(DeltaX/0.06)**(0.63/1.239)
+
         if X <= 0.3817016416:
+            # Eq 15
             Y = qc/5*X*(qd*X)**5*(1-qc*X+(qc*X)**2-765./504*(qd*X)**2)
+
         else:
-            Fid = acos((1+qd**2*X**2)**-0.5)
-            w = abs((qc*X-1)/(qc*X+1))**0.5*tan(Fid/2)
+            Fid = acos((1+qd**2*X**2)**-0.5)                            # Eq 17
+            w = abs((qc*X-1)/(qc*X+1))**0.5*tan(Fid/2)                  # Eq 19
+
+            # Eq 18
             if qc*X > 1:
                 Lw = log((1+w)/(1-w))
             else:
                 Lw = 2*atan(abs(w))
+
+            # Eq 16
             Y = sin(3*Fid)/12-sin(2*Fid)/4/qc/X+(1-5/4*(qc*X)**2)/(
                 qc*X)**2*sin(Fid)-((1-3/2*(qc*X)**2)*Fid-abs((
                     qc*X)**2-1)**1.5*Lw)/(qc*X)**3
-        fi2 = exp(0.068*Y)
+
+        # Eq 14
+        mu2 = exp(0.068*Y)
     else:
-        fi2 = 1
-    return fi0*fi1*fi2*1e-6
+        mu2 = 1
+
+    # Eq 10
+    mu = mu0*mu1*mu2
+    return mu*1e-6
 
 
 def _ThCond(rho, T, fase=None, drho=None):
@@ -583,49 +774,74 @@ def _ThCond(rho, T, fase=None, drho=None):
     IAPWS, Release on the IAPWS Formulation 2011 for the Thermal Conductivity
     of Ordinary Water Substance, http://www.iapws.org/relguide/ThCond.html
     """
-    d = rho/322.
-    Tr = T/647.096
+    d = rho/rhoc
+    Tr = T/Tc
 
+    # Eq 16
     no = [2.443221e-3, 1.323095e-2, 6.770357e-3, -3.454586e-3, 4.096266e-4]
-    suma = 0
-    for i in range(5):
-        suma += no[i]/Tr**i
-    L0 = Tr**0.5/suma
+    k0 = Tr**0.5/sum([n/Tr**i for i, n in enumerate(no)])
 
-    nij = [
-        [1.60397357, -0.646013523, 0.111443906, 0.102997357, -0.0504123634,
-         0.00609859258],
-        [2.33771842, -2.78843778, 1.53616167, -0.463045512, 0.0832827019,
-         -0.00719201245],
-        [2.19650529, -4.54580785, 3.55777244, -1.40944978, 0.275418278,
-         -0.0205938816],
-        [-1.21051378, 1.60812989, -0.621178141, 0.0716373224, 0, 0],
-        [-2.7203370, 4.57586331, -3.18369245, 1.1168348, -0.19268305,
-         0.012913842]]
-    suma = 0
-    for i in range(len(nij)):
-        suma2 = 0
-        for j in range(len(nij[i])):
-            suma2 += nij[i][j]*(d-1)**j
-        suma += (1/Tr-1)**i*suma2
-    L1 = exp(d*suma)
+    # Eq 17
+    I = [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 4,
+         4, 4, 4, 4, 4]
+    J = [0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 0,
+         1, 2, 3, 4, 5]
+    nij = [1.60397357, -0.646013523, 0.111443906, 0.102997357, -0.0504123634,
+           0.00609859258, 2.33771842, -2.78843778, 1.53616167, -0.463045512,
+           0.0832827019, -0.00719201245, 2.19650529, -4.54580785, 3.55777244,
+           -1.40944978, 0.275418278, -0.0205938816, -1.21051378, 1.60812989,
+           -0.621178141, 0.0716373224, -2.7203370, 4.57586331, -3.18369245,
+           1.1168348, -0.19268305, 0.012913842]
+    k1 = exp(d*sum([(1/Tr-1)**i*n*(d-1)**j for i, j, n in zip(I, J, nij)]))
 
-    L2 = 0
-    if fase and drho:
+    # Critical enhancement
+    if fase:
         R = 0.46151805
 
-        DeltaX = Pc*d**2*(fase.drhodP_T/rho-drho/rho*1.5/Tr)
+        if not drho:
+            # Industrial formulation
+            # Eq 25
+            if d <= 0.310559006:
+                ai = [6.53786807199516, -5.61149954923348, 3.39624167361325,
+                      -2.27492629730878, 10.2631854662709, 1.97815050331519]
+            elif d <= 0.776397516:
+                ai = [6.52717759281799, -6.30816983387575, 8.08379285492595,
+                      -9.82240510197603, 12.1358413791395, -5.54349664571295]
+            elif d <= 1.242236025:
+                ai = [5.35500529896124, -3.96415689925446, 8.91990208918795,
+                      -12.0338729505790, 9.19494865194302, -2.16866274479712]
+            elif d <= 1.863354037:
+                ai = [1.55225959906681, 0.464621290821181, 8.93237374861479,
+                      -11.0321960061126, 6.16780999933360, -0.965458722086812]
+            else:
+                ai = [1.11999926419994, 0.595748562571649, 9.88952565078920,
+                      -10.3255051147040, 4.66861294457414, -0.503243546373828]
+            drho = 1/sum([a*d**i for i, a in enumerate(ai)])*rhoc/Pc
+
+        DeltaX = d*(Pc/rhoc*fase.drhodP_T-Pc/rhoc*drho*1.5/Tr)
         if DeltaX < 0:
             DeltaX = 0
-        X = 0.13*(DeltaX/0.06)**(0.63/1.239)
-        y = X/0.4
+
+        X = 0.13*(DeltaX/0.06)**(0.63/1.239)                            # Eq 22
+        y = X/0.4                                                       # Eq 20
+
+        # Eq 19
         if y < 1.2e-7:
             Z = 0
         else:
             Z = 2/pi/y*(((1-1/fase.cp_cv)*atan(y)+y/fase.cp_cv)-(
                 1-exp(-1/(1/y+y**2/3/d**2))))
-        L2 = 177.8514*d*fase.cp/R*Tr/fase.mu*1e-6*Z
-    return 1e-3*(L0*L1+L2)
+
+        # Eq 18
+        k2 = 177.8514*d*fase.cp/R*Tr/fase.mu*1e-6*Z
+
+    else:
+        # No critical enhancement
+        k2 = 0
+
+    # Eq 10
+    k = k0*k1+k2
+    return 1e-3*k
 
 
 def _Tension(T):
@@ -681,6 +897,11 @@ def _Dielectric(rho, T):
     epsilon : float
         Dielectric constant [-]
 
+    Raises
+    ------
+    NotImplementedError : If input isn't in limit
+        * 238 ≤ T ≤ 1200
+
     Examples
     --------
     >>> _Dielectric(999.242866, 298.15)
@@ -694,6 +915,10 @@ def _Dielectric(rho, T):
     Substance for Temperatures from 238 K to 873 K and Pressures up to 1000
     MPa, http://www.iapws.org/relguide/Dielec.html
     """
+    # Check input parameters
+    if T < 238 or T > 1200:
+        raise NotImplementedError("Incoming out of bound")
+
     k = 1.380658e-23
     Na = 6.0221367e23
     alfa = 1.636e-40
@@ -856,6 +1081,7 @@ def _Conductivity(rho, T):
     Supercritical Water from 0°C to 800°C and Pressures up to 1000 MPa,
     http://www.iapws.org/relguide/conduct.pdf
     """
+    # FIXME: Dont work
     rho_ = rho/1000
     kw = 10**-_Kw(rho, T)
 
