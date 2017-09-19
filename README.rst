@@ -1,9 +1,13 @@
-.. image:: https://api.travis-ci.org/jjgomera/iapws.svg?branch=master
-    :target: https://travis-ci.org/jjgomera/iapws
+.. image:: https://api.travis-ci.org/jdamato3/iapws.svg?branch=master
+    :target: https://travis-ci.org/jdamato3/iapws
     :alt: Build Status
 
-.. image:: https://ci.appveyor.com/api/projects/status/a128sh8e50cjsiya?svg=true
-    :target: https://ci.appveyor.com/project/jjgomera/iapws
+.. image:: https://circleci.com/gh/jdamato3/iapws/tree/master.svg?style=svg
+    :target: https://circleci.com/gh/jdamato3/iapws
+    :alt: Build Status
+
+.. image:: https://ci.appveyor.com/api/projects/status/l0pnt8xfi5cv6wfp/branch/master?svg=true
+    :target: https://ci.appveyor.com/project/jdamato3/iapws
     :alt: Windows Build Status
 
 .. image:: https://coveralls.io/repos/github/jjgomera/iapws/badge.svg?branch=master
@@ -33,7 +37,7 @@ Python implementation of standard from IAPWS (http://www.iapws.org/release.html)
     IAPWS-08 for seawater
     IAPWS-05 for Heavy water
     ...
-    
+
 
 dependences
 --------------------
@@ -48,7 +52,7 @@ install
 In debian you can find in official repositories in jessie, testing and sid. In ubuntu it's in official repositories from ubuntu saucy (13.10). In other system you can install using pip::
 
 	pip install iapws
- 
+
 or directly cloning the github repository::
 
     git clone https://github.com/jjgomera/iapws.git
@@ -58,12 +62,12 @@ and adding the folder to a python path. This is the recommended option to have t
 
 documentation
 --------------------
- 
+
 To see the full documentation of package, see `readthedocs <http://iapws.readthedocs.io/>`__
 
 .. inclusion-marker-do-not-remove
 
-For a rapid usage demostration, see this examples 
+For a rapid usage demostration, see this examples
 
 
 IAPWS-IF97
@@ -75,7 +79,7 @@ IAPWS-IF97
 	sat_liquid=IAPWS97(T=370, x=0)            #saturated liquid with known T
 	steam=IAPWS97(P=2.5, T=500)               #steam with known P and T
 	print(sat_steam.h, sat_liquid.h, steam.h) #calculated enthalpies
-    
+
 
 IAPWS-95
 
@@ -86,7 +90,7 @@ IAPWS-95
 	sat_liquid=IAPWS95(T=370, x=0)            #saturated liquid with known T
 	steam=IAPWS95(P=2.5, T=500)               #steam with known P and T
 	print(sat_steam.h, sat_liquid.h, steam.h) #calculated enthalpies
-    
+
 
 IAPWS-05 for Heavy water
 
