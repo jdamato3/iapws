@@ -38,6 +38,7 @@ Python implementation of standard from IAPWS (http://www.iapws.org/release.html)
     IAPWS-05 for Heavy water
     ...
 
+test
 
 dependences
 --------------------
